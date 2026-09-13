@@ -1,0 +1,35 @@
+name: Cotygodniowy Backup Ligi Tenisowej
+
+on:
+  schedule:
+    # W każdy poniedziałek o godzinie 03:00 UTC (05:00 czasu polskiego)
+    - cron: '0 3 * * 1'
+  workflow_dispatch: # Umożliwia również ręczne uruchomienie z panelu GitHub Actions
+
+jobs:
+  backup:
+    name: Generowanie i archiwizacja kopii JSON
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Pobierz kod repozytorium
+        uses: actions/checkout@v4
+
+      - name: Skonfiguruj Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Zainstaluj zależności
+        run: npm ci
+
+      - name: Wykonaj backup bazy Firestore
+        run: npm run backup
+
+      - name: Zarchiwizuj plik JSON jako artefakt
+        uses: actions/upload-artifact@v4
+        with:
+          name: liga-backup-${{ github.run_id }}
+          path: backups/backup-liga-*.json
+          retention-days: 90

@@ -1,0 +1,73 @@
+{
+  "version": "2.0",
+  "exportedAt": "2026-09-09T14:46:39.789Z",
+  "leagueName": "Liga Dżentelmenów",
+  "databaseId": "ai-studio-ligagentlemanwte-f63a9456-20a7-4869-a7f5-b61a5fb4ac96",
+  "stats": {
+    "totalPlayers": 2,
+    "totalMatches": 0,
+    "totalUsers": 2
+  },
+  "players": [
+    {
+      "preferredTimes": "Wieczory",
+      "name": "Przemysław Chłus",
+      "avatarColor": "bg-emerald-800",
+      "notes": "Komisarz Ligi Gentlemanów Tenisa",
+      "status": "active",
+      "nickname": "Przemo",
+      "phone": "+48 607202737",
+      "preferredCourts": "Silva Sport",
+      "preferredSurfaces": [
+        "Mączka",
+        "Twardy"
+      ],
+      "playStyle": "Zawsze petarda",
+      "id": "p1",
+      "email": "przemyslaw.chlus@gmail.com"
+    },
+    {
+      "status": "active",
+      "preferredSurfaces": [
+        "Mączka"
+      ],
+      "preferredCourts": "Mera, Warszawianka, Spójnia, Raszyn, Silva Sport, Lesznowola i okolice",
+      "preferredTimes": "Dni robocze po 18:00",
+      "avatarColor": "bg-amber-600",
+      "id": "p_1788961563863",
+      "playStyle": "Ostry",
+      "email": "adrianladak001@gmail.com",
+      "nickname": "LDK",
+      "phone": "+48 663404818",
+      "name": "Adrian"
+    }
+  ],
+  "matches": [],
+  "settings": {
+    "points1_2": 1,
+    "season": "Sezon 2026 / 2027",
+    "superTiebreakDecider": true,
+    "points2_1": 2,
+    "points0_2": 0,
+    "points2_0": 3,
+    "leagueName": "Liga Gentlemanów Tenisa"
+  },
+  "users": [
+    {
+      "id": "u_1788961488817",
+      "name": "Adrian",
+      "email": "adrianladak001@gmail.com",
+      "role": "admin",
+      "status": "approved",
+      "createdAt": 1788961488817
+    },
+    {
+      "id": "u_admin",
+      "name": "Przemysław Chłus",
+      "email": "przemyslaw.chlus@gmail.com",
+      "role": "admin",
+      "status": "approved",
+      "createdAt": 1711900000000
+    }
+  ]
+}

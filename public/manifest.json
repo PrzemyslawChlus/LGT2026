@@ -1,0 +1,25 @@
+{
+  "name": "Liga Gentlemanów Tenisa",
+  "short_name": "Gentlemani Tenisa",
+  "description": "Oficjalna aplikacja Ligi Gentlemanów Tenisa do prowadzenia wyników, tabeli i umawiania meczów",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#064e3b",
+  "theme_color": "#064e3b",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/logo.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ],
+  "categories": ["sports", "productivity", "utilities"]
+}
