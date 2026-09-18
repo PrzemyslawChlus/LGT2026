@@ -38,6 +38,7 @@ import { PwaInstallModal } from './components/PwaInstallModal';
 import { MobileBottomNav } from './components/MobileBottomNav';
 import { AuthView } from './components/AuthView';
 import { VersionNotification } from './components/VersionNotification';
+import { OpponentSuggester } from './components/OpponentSuggester';
 
 interface BeforeInstallPromptEvent extends Event {
   readonly platforms: string[];
@@ -426,6 +427,7 @@ export default function App() {
       const matchedUser = users.find(
         (u) =>
           u.playerId === player.id ||
+          (u.name && player.name && u.name.trim().toLowerCase() === player.name.trim().toLowerCase()) ||
           (player.email && u.email?.toLowerCase() === player.email.toLowerCase()) ||
           (currentUser && u.id === currentUser.id && (u.playerId === player.id || player.name.toLowerCase() === u.name.toLowerCase()))
       );
@@ -435,6 +437,7 @@ export default function App() {
           name: player.name,
           nickname: player.nickname,
           phone: player.phone,
+          email: player.email,
           playStyle: player.playStyle,
           preferredCourts: player.preferredCourts,
           preferredTimes: player.preferredTimes,
@@ -542,6 +545,16 @@ export default function App() {
     });
   };
 
+  const handleScrollToSuggester = () => {
+    setActiveTab('standings');
+    setTimeout(() => {
+      const el = document.getElementById('opponent-suggester-hero');
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }, 80);
+  };
+
   // If user is not authenticated, block all access to the app and show AuthView
   if (!currentUser) {
     return (
@@ -576,10 +589,25 @@ export default function App() {
         onEditMyProfile={handleEditMyProfile}
         pendingApprovalsCount={pendingApprovalsCount}
         syncStatus={syncStatus}
+        onScrollToSuggester={handleScrollToSuggester}
       />
 
       {/* Main Container */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 pt-3 pb-24 sm:py-6 space-y-5 sm:space-y-6 min-w-0">
+        {/* Prominent Opponent Suggester Hero Section (Mobilizacja do gry z nowymi rywalami) */}
+        {(activeTab === 'standings' || activeTab === 'matches') && (
+          <OpponentSuggester
+            players={players}
+            matches={matches}
+            standings={standings}
+            settings={settings}
+            currentUser={currentUser}
+            currentUserPlayer={currentUserPlayer}
+            onSelectPlayer={(p) => setSelectedPlayerDetail(p)}
+            onOpenNewMatchBetween={handleOpenNewMatchBetween}
+          />
+        )}
+
         {activeTab === 'standings' && (
           <StandingsTable
             standings={standings}
@@ -615,6 +643,7 @@ export default function App() {
             players={players}
             matches={matches}
             currentUser={currentUser}
+            currentUserPlayer={currentUserPlayer}
             onSelectPlayer={(p) => setSelectedPlayerDetail(p)}
             onEditPlayer={handleEditPlayer}
             onAddNewPlayer={handleAddNewPlayer}

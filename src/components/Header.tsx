@@ -14,6 +14,7 @@ import {
   BookOpen,
   Settings,
   FolderArchive,
+  Target,
 } from 'lucide-react';
 import { LeagueSettings, User, ActiveTab } from '../types';
 
@@ -36,6 +37,7 @@ interface HeaderProps {
   onEditMyProfile?: () => void;
   pendingApprovalsCount?: number;
   syncStatus?: 'syncing' | 'live' | 'offline';
+  onScrollToSuggester?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -53,6 +55,7 @@ export const Header: React.FC<HeaderProps> = ({
   onEditMyProfile,
   pendingApprovalsCount = 0,
   syncStatus = 'live',
+  onScrollToSuggester,
 }) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -154,6 +157,20 @@ export const Header: React.FC<HeaderProps> = ({
               >
                 <Download className="w-3.5 h-3.5 text-lime-400" />
                 <span className="hidden sm:inline">Aplikacja</span>
+              </button>
+            )}
+
+            {/* Quick Opponent Suggester CTA */}
+            {onScrollToSuggester && (
+              <button
+                id="header-suggester-btn"
+                type="button"
+                onClick={onScrollToSuggester}
+                className="inline-flex items-center gap-1.5 px-2 sm:px-2.5 py-1.5 text-xs font-extrabold rounded-xl bg-gradient-to-r from-amber-400/20 to-lime-400/20 hover:from-amber-400/30 hover:to-lime-400/30 text-amber-300 hover:text-white border border-amber-400/40 shadow-xs transition-all cursor-pointer"
+                title="Zobacz rekomendowanego rywala i zagraj z kimś nowym!"
+              >
+                <Target className="w-3.5 h-3.5 text-amber-400 stroke-[2.5]" />
+                <span className="hidden sm:inline">Kogo wyzwać?</span>
               </button>
             )}
 

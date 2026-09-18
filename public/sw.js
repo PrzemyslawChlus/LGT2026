@@ -1,8 +1,9 @@
 // Service Worker - Liga Gentlemanów Tenisa
 // Strategy: Network-First for Navigation (HTML) & dynamic version files,
-// Stale-While-Revalidate/Cache-First for immutable hashed assets.
+// Cache-First for production hashed /assets/* and static branding assets.
+// Explicitly ignores all development modules, Vite client, and external APIs.
 
-const CACHE_VERSION = 'lgt-v2026-build';
+const CACHE_VERSION = 'lgt-v2026-clean-v4';
 const STATIC_ASSETS = [
   '/logo.svg',
   '/icon.svg',
@@ -10,7 +11,6 @@ const STATIC_ASSETS = [
 ];
 
 self.addEventListener('install', (event) => {
-  // Pre-cache only immutable core branding assets, NEVER index.html!
   event.waitUntil(
     caches.open(CACHE_VERSION).then((cache) => {
       return cache.addAll(STATIC_ASSETS).catch((err) => {
@@ -18,7 +18,6 @@ self.addEventListener('install', (event) => {
       });
     })
   );
-  // Activate immediately without waiting for previous workers
   self.skipWaiting();
 });
 
@@ -28,7 +27,7 @@ self.addEventListener('activate', (event) => {
       return Promise.all(
         keys.map((key) => {
           if (key !== CACHE_VERSION) {
-            console.log('[SW] Deleting old cache bucket:', key);
+            console.log('[SW] Purging old cache bucket:', key);
             return caches.delete(key);
           }
         })
@@ -62,22 +61,30 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(request.url);
 
-  // 1. Never cache version.json, sw.js or Firebase/Firestore/Google API calls
+  // 1. Strict bypass for:
+  // - version.json and sw.js
+  // - Vite dev server endpoints: /@vite, /@fs, /@react-refresh, /src/, /node_modules/
+  // - Query params with timestamp or versioning (e.g. ?v=, ?t=)
+  // - External APIs: Firebase, Firestore, Google APIs, AI Studio backend
   if (
     url.pathname === '/sw.js' ||
     url.pathname === '/version.json' ||
+    url.pathname.startsWith('/@') ||
+    url.pathname.startsWith('/src/') ||
+    url.pathname.startsWith('/node_modules/') ||
+    url.search.includes('v=') ||
+    url.search.includes('t=') ||
     url.hostname.includes('firebaseio.com') ||
     url.hostname.includes('firestore.googleapis.com') ||
     url.hostname.includes('googleapis.com') ||
     url.hostname.includes('identitytoolkit') ||
-    url.hostname.includes('run.app') && url.pathname.startsWith('/api')
+    (url.hostname.includes('run.app') && url.pathname.startsWith('/api'))
   ) {
-    return; // Let standard browser network handle it directly
+    return; // Pass through to network untouched
   }
 
   // 2. Navigation / HTML Document requests -> STRICT NETWORK-FIRST
-  // This guarantees that after any new deploy, the user gets the fresh index.html
-  // and fresh asset references immediately, falling back to cache only when offline.
+  // This guarantees fresh index.html after deployments, with offline fallback.
   const isHtmlNavigation =
     request.mode === 'navigate' ||
     request.headers.get('accept')?.includes('text/html') ||
@@ -97,8 +104,7 @@ self.addEventListener('fetch', (event) => {
           return networkResponse;
         })
         .catch(async () => {
-          // Offline fallback
-          console.warn('[SW] Network unreachable, serving cached offline document.');
+          console.warn('[SW] Offline: serving cached document fallback.');
           const cached = await caches.match(request);
           if (cached) return cached;
           const cachedRoot = await caches.match('/');
@@ -109,36 +115,43 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // 3. Static assets (/assets/*.js, /assets/*.css, fonts, images)
-  // These files are either hashed by Vite or static, so cache with network fallback is safe.
-  event.respondWith(
-    caches.match(request).then((cachedResponse) => {
-      if (cachedResponse) {
-        // Fetch update in background for next time if it's not a hashed asset
-        if (!url.pathname.startsWith('/assets/')) {
-          fetch(request)
-            .then((networkResponse) => {
-              if (networkResponse && networkResponse.status === 200) {
-                caches.open(CACHE_VERSION).then((cache) => cache.put(request, networkResponse));
-              }
-            })
-            .catch(() => {});
-        }
-        return cachedResponse;
-      }
+  // 3. Static assets (/assets/*.js, /assets/*.css, static images, web manifest)
+  const isStaticAsset =
+    url.pathname.startsWith('/assets/') ||
+    url.pathname.endsWith('.svg') ||
+    url.pathname.endsWith('.png') ||
+    url.pathname.endsWith('.jpg') ||
+    url.pathname.endsWith('.ico') ||
+    url.pathname === '/manifest.json';
 
-      return fetch(request)
-        .then((networkResponse) => {
-          if (!networkResponse || networkResponse.status !== 200 || networkResponse.type !== 'basic') {
-            return networkResponse;
+  if (isStaticAsset) {
+    event.respondWith(
+      caches.match(request).then((cachedResponse) => {
+        if (cachedResponse) {
+          // If not a content-hashed asset, revalidate in background
+          if (!url.pathname.startsWith('/assets/')) {
+            fetch(request)
+              .then((networkResponse) => {
+                if (networkResponse && networkResponse.status === 200) {
+                  caches.open(CACHE_VERSION).then((cache) => cache.put(request, networkResponse));
+                }
+              })
+              .catch(() => {});
           }
-          const clone = networkResponse.clone();
-          caches.open(CACHE_VERSION).then((cache) => cache.put(request, clone));
-          return networkResponse;
-        })
-        .catch(() => {
-          // If offline and image/asset missing, return null
-        });
-    })
-  );
+          return cachedResponse;
+        }
+
+        return fetch(request)
+          .then((networkResponse) => {
+            if (!networkResponse || networkResponse.status !== 200 || networkResponse.type !== 'basic') {
+              return networkResponse;
+            }
+            const clone = networkResponse.clone();
+            caches.open(CACHE_VERSION).then((cache) => cache.put(request, clone));
+            return networkResponse;
+          })
+          .catch(() => {});
+      })
+    );
+  }
 });

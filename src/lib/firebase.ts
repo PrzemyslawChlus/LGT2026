@@ -122,6 +122,9 @@ export async function ensureInitialSeed(): Promise<void> {
 
     // Auto-reconcile: ensure all approved users have a corresponding player document
     await reconcileApprovedUsersWithPlayers();
+
+    // Specific requested update: Ensure player Iwo has email iwo.szapar@gmail.com
+    await ensureIwoEmailUpdate();
   } catch (error) {
     console.warn('⚠️ Could not check or seed initial Firestore data (operating with local fallback):', error);
   } finally {
@@ -177,6 +180,48 @@ export async function reconcileApprovedUsersWithPlayers(): Promise<void> {
     }
   } catch (err) {
     console.warn('Could not run player reconciliation:', err);
+  }
+}
+
+/**
+ * Ensures player Iwo has email updated to iwo.szapar@gmail.com in both players and users collections in Firestore.
+ */
+export async function ensureIwoEmailUpdate(): Promise<void> {
+  const TARGET_EMAIL = 'iwo.szapar@gmail.com';
+  try {
+    // 1. Check players collection for any player with name containing "Iwo"
+    const playersSnap = await getDocs(collection(db, PLAYERS_COLLECTION));
+    for (const d of playersSnap.docs) {
+      const p = d.data() as Player;
+      if (
+        (p.name && p.name.toLowerCase().includes('iwo')) ||
+        (p.nickname && p.nickname.toLowerCase().includes('iwo')) ||
+        (p.email && p.email.toLowerCase().includes('iwo'))
+      ) {
+        if (p.email !== TARGET_EMAIL) {
+          console.log(`🎾 Updating player ${p.name} (${p.id}) email to ${TARGET_EMAIL}...`);
+          await setDoc(doc(db, PLAYERS_COLLECTION, p.id), { ...p, email: TARGET_EMAIL }, { merge: true });
+        }
+      }
+    }
+
+    // 2. Check users collection for any user with name containing "Iwo"
+    const usersSnap = await getDocs(collection(db, USERS_COLLECTION));
+    for (const d of usersSnap.docs) {
+      const u = d.data() as StoredUser;
+      if (
+        (u.name && u.name.toLowerCase().includes('iwo')) ||
+        (u.nickname && u.nickname.toLowerCase().includes('iwo')) ||
+        (u.email && u.email.toLowerCase().includes('iwo'))
+      ) {
+        if (u.email !== TARGET_EMAIL) {
+          console.log(`👤 Updating user ${u.name} (${u.id}) email to ${TARGET_EMAIL}...`);
+          await setDoc(doc(db, USERS_COLLECTION, u.id), { ...u, email: TARGET_EMAIL }, { merge: true });
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('Could not check or update Iwo email in Firestore:', err);
   }
 }
 

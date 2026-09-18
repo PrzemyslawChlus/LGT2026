@@ -33,53 +33,6 @@
   <body class="bg-stone-100 text-stone-900 antialiased selection:bg-lime-300 selection:text-emerald-950 font-sans overflow-x-hidden w-full max-w-full">
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
-    <script>
-      if ('serviceWorker' in navigator) {
-        window.addEventListener('load', () => {
-          navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' }).then((reg) => {
-            // Check immediately on load
-            reg.update();
-
-            // Periodic update check every 60 seconds
-            setInterval(() => {
-              reg.update();
-            }, 60 * 1000);
-
-            // Re-check update when user returns to tab / unlocks phone
-            document.addEventListener('visibilitychange', () => {
-              if (document.visibilityState === 'visible') {
-                reg.update();
-              }
-            });
-
-            // If a new worker is installed, ask it to skip waiting
-            reg.addEventListener('updatefound', () => {
-              const newWorker = reg.installing;
-              if (newWorker) {
-                newWorker.addEventListener('statechange', () => {
-                  if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-                    console.log('[SW] New service worker version detected, activating...');
-                    newWorker.postMessage({ type: 'SKIP_WAITING' });
-                  }
-                });
-              }
-            });
-          }).catch((err) => {
-            console.warn('SW registration warning:', err);
-          });
-
-          // Reload smoothly when new controller takes over
-          let refreshing = false;
-          navigator.serviceWorker.addEventListener('controllerchange', () => {
-            if (!refreshing) {
-              refreshing = true;
-              console.log('[SW] New version activated, reloading view...');
-              window.location.reload();
-            }
-          });
-        });
-      }
-    </script>
   </body>
 </html>
 

@@ -212,6 +212,112 @@ assert(p1Row?.points === 3, `P1 ma nadal 3 pkt (porażka w sparingu nie odjęła
 assert(p2Row?.points === 0, `P2 ma nadal 0 pkt (wygrana w sparingu nie dała mu punktów ligowych, ma: ${p2Row?.points})`);
 assert(p1Row?.played === 1, `P1 ma 1 mecz ligowy (mecz towarzyski nie wlicza się do rozegranych meczów ligowych, ma: ${p1Row?.played})`);
 
+console.log('\n🎯 TEST SUITE 6: Proponowanie kolejnego rywala (getOpponentSuggestions)');
+const testPlayers: Player[] = [
+  { id: 'u1', name: 'Gracz Główny', phone: '+48 111 222 333', avatarColor: 'bg-emerald-700', preferredSurfaces: ['Mączka'], status: 'active' },
+  { id: 'u2', name: 'Stary Znajomy', phone: '+48 222 333 444', avatarColor: 'bg-blue-700', preferredSurfaces: ['Mączka'], status: 'active' },
+  { id: 'u3', name: 'Nowy Rywal', phone: '+48 333 444 555', avatarColor: 'bg-amber-700', preferredSurfaces: ['Mączka'], status: 'active' },
+  { id: 'u4', name: 'Rywal do Rewanżu', phone: '+48 444 555 666', avatarColor: 'bg-purple-700', preferredSurfaces: ['Mączka'], status: 'active' },
+];
+
+const testMatches: Match[] = [
+  // Z u2 graliśmy 5 dni temu
+  {
+    id: 'm-u1-u2',
+    player1Id: 'u1',
+    player2Id: 'u2',
+    date: '2026-09-10',
+    sets: [{ games1: 6, games2: 4 }, { games1: 6, games2: 3 }],
+    winnerId: 'u1',
+    status: 'completed',
+    createdAt: 100,
+  },
+  // Z u4 graliśmy 3 miesiące temu (2026-06-01) - kwalifikuje się do rewanżu ligowego!
+  {
+    id: 'm-u1-u4',
+    player1Id: 'u1',
+    player2Id: 'u4',
+    date: '2026-06-01',
+    sets: [{ games1: 4, games2: 6 }, { games1: 5, games2: 7 }],
+    winnerId: 'u4',
+    status: 'completed',
+    createdAt: 50,
+  },
+  // Z u3 NIE graliśmy ani razu!
+];
+
+const testStandings = calculateStandings(testPlayers, testMatches, settings);
+const { suggestions, stats: explorationStats } = (await import('../src/utils/opponentSuggester')).getOpponentSuggestions(
+  'u1',
+  testPlayers,
+  testMatches,
+  testStandings,
+  '2026-09-15'
+);
+
+assert(suggestions.length === 3, 'Wygenerowano sugestie dla 3 rywali');
+assert(suggestions[0].opponent.id === 'u3', `Najwyższy priorytet ma u3 (Nowy Rywal, z którym nigdy nie grano), otrzymano: ${suggestions[0].opponent.name}`);
+assert(suggestions[0].priority === 'unplayed', 'Priorytet pierwszego rywala to unplayed');
+assert(suggestions[1].opponent.id === 'u4', `Drugi priorytet ma u4 (Rywal do Rewanżu po upływie 2 miesięcy), otrzymano: ${suggestions[1].opponent.name}`);
+assert(suggestions[1].priority === 'rematch_eligible', 'Priorytet drugiego rywala to rematch_eligible');
+assert(suggestions[2].opponent.id === 'u2', `Ostatni priorytet ma u2 (grano 5 dni temu - mecz tylko towarzyski), otrzymano: ${suggestions[2].opponent.name}`);
+assert(explorationStats?.unplayedOpponentsCount === 1, `Liczba niezagranych rywali to 1 (jest: ${explorationStats?.unplayedOpponentsCount})`);
+assert(explorationStats?.playedOpponentsCount === 2, `Liczba zagranych rywali to 2 (jest: ${explorationStats?.playedOpponentsCount})`);
+assert(explorationStats?.explorationRate === 67, `Wskaźnik eksploracji ligi to 67% (jest: ${explorationStats?.explorationRate}%)`);
+assert(explorationStats?.avgLeagueMatches === 1, `Średnia ligi to 1 mecz/gracza (jest: ${explorationStats?.avgLeagueMatches})`);
+assert(typeof explorationStats?.avgLeagueMatchesMonthly === 'number', 'Miesięczna średnia ligi jest liczbą');
+assert(explorationStats!.avgLeagueMatchesMonthly > 0, `Miesięczna średnia ligi jest dodatnia (${explorationStats?.avgLeagueMatchesMonthly} m./miesiąc)`);
+
+// Test pacing for u3 (0 meczów - powinien zostać zmobilizowany ze względu na tempo poniżej miesięcznej średniej)
+const { stats: statsU3 } = (await import('../src/utils/opponentSuggester')).getOpponentSuggestions(
+  'u3',
+  testPlayers,
+  testMatches,
+  testStandings,
+  '2026-09-15'
+);
+assert(statsU3?.pace.status === 'behind', `Gracz u3 bez meczów ma status 'behind', otrzymano: ${statsU3?.pace.status}`);
+assert(statsU3?.pace.messageType === 'mobilize', `Gracz u3 otrzymuje komunikat mobilizujący ('mobilize'), otrzymano: ${statsU3?.pace.messageType}`);
+assert(statsU3?.pace.playerMatchesPerMonth === 0, `Gracz u3 ma 0 m./miesiąc, otrzymano: ${statsU3?.pace.playerMatchesPerMonth}`);
+assert(statsU3?.pace.message.includes('miesięcznej średniej'), 'Komunikat dla gracza u3 odnosi się do miesięcznej średniej');
+
+// Test pacing for gracz z dużą liczbą meczów (powyżej średniej miesięcznej - powinien zostać pochwalony)
+const activeTestMatches = [
+  ...testMatches,
+  {
+    id: 'm-extra-1',
+    player1Id: 'u1',
+    player2Id: 'u2',
+    date: '2026-07-01',
+    sets: [{ games1: 6, games2: 2 }, { games1: 6, games2: 3 }],
+    winnerId: 'u1',
+    status: 'completed' as const,
+    createdAt: 60,
+  },
+  {
+    id: 'm-extra-2',
+    player1Id: 'u1',
+    player2Id: 'u4',
+    date: '2026-08-01',
+    sets: [{ games1: 6, games2: 4 }, { games1: 6, games2: 4 }],
+    winnerId: 'u1',
+    status: 'completed' as const,
+    createdAt: 70,
+  }
+];
+const standingsExtra = calculateStandings(testPlayers, activeTestMatches, settings);
+const { stats: statsU1High } = (await import('../src/utils/opponentSuggester')).getOpponentSuggestions(
+  'u1',
+  testPlayers,
+  activeTestMatches,
+  standingsExtra,
+  '2026-09-15'
+);
+assert(statsU1High?.pace.status === 'ahead', `Gracz u1 ze znaczną przewagą meczów ma status 'ahead', otrzymano: ${statsU1High?.pace.status}`);
+assert(statsU1High?.pace.messageType === 'praise', `Gracz u1 otrzymuje komunikat chwalący ('praise'), otrzymano: ${statsU1High?.pace.messageType}`);
+assert(statsU1High!.pace.playerMatchesPerMonth > statsU1High!.pace.avgLeagueMatchesMonthly, 'Gracz u1 ma miesięczne tempo wyższe od średniej miesięcznej ligi');
+assert(statsU1High?.pace.message.includes('miesięczna średnia'), 'Komunikat chwalący dla gracza u1 odnosi się do miesięcznej średniej');
+
 console.log(`\n========================================`);
 console.log(`PODSUMOWANIE TESTÓW: ${passed} PASSED, ${failed} FAILED`);
 console.log(`========================================\n`);

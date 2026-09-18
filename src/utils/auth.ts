@@ -591,6 +591,7 @@ export function updateUserProfile(
     name?: string;
     nickname?: string;
     phone?: string;
+    email?: string;
     playStyle?: string;
     preferredCourts?: string;
     preferredTimes?: string;
@@ -616,6 +617,7 @@ export function updateUserProfile(
     name: updates.name !== undefined ? updates.name.trim() : prevUser.name,
     nickname: updates.nickname !== undefined ? (updates.nickname.trim() || undefined) : prevUser.nickname,
     phone: updates.phone !== undefined ? updates.phone.trim() : prevUser.phone,
+    email: updates.email !== undefined ? updates.email.trim() : prevUser.email,
     playStyle: updates.playStyle !== undefined ? updates.playStyle.trim() : prevUser.playStyle,
     preferredCourts: updates.preferredCourts !== undefined ? updates.preferredCourts.trim() : prevUser.preferredCourts,
     preferredTimes: updates.preferredTimes !== undefined ? updates.preferredTimes.trim() : prevUser.preferredTimes,

@@ -6,6 +6,7 @@ interface PlayersDirectoryProps {
   players: Player[];
   matches: Match[];
   currentUser?: User | null;
+  currentUserPlayer?: Player | null;
   onSelectPlayer: (player: Player) => void;
   onEditPlayer: (player: Player) => void;
   onAddNewPlayer: () => void;
@@ -16,6 +17,7 @@ export const PlayersDirectory: React.FC<PlayersDirectoryProps> = ({
   players,
   matches,
   currentUser,
+  currentUserPlayer,
   onSelectPlayer,
   onEditPlayer,
   onAddNewPlayer,
@@ -147,6 +149,24 @@ export const PlayersDirectory: React.FC<PlayersDirectoryProps> = ({
                   <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-stone-100 text-stone-600">
                     Bilans: {wins}W - {losses}P
                   </span>
+
+                  {(() => {
+                    if (!currentUserPlayer || isSelf || player.status !== 'active') return null;
+                    const directMatches = matches.filter(
+                      (m) =>
+                        m.status === 'completed' &&
+                        ((m.player1Id === currentUserPlayer.id && m.player2Id === player.id) ||
+                          (m.player1Id === player.id && m.player2Id === currentUserPlayer.id))
+                    );
+                    if (directMatches.length === 0) {
+                      return (
+                        <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-lime-400 text-emerald-950 border border-lime-500/40 shadow-xs">
+                          ★ Nowy rywal (0 meczów)
+                        </span>
+                      );
+                    }
+                    return null;
+                  })()}
                 </div>
 
                 {/* Details list */}
