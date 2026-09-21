@@ -94,6 +94,13 @@ export const H2HMatrix: React.FC<H2HMatrixProps> = ({
     }
   });
 
+  // Sort scheduled opponents chronologically: nearest matches first
+  scheduledOpponents.sort((a, b) => {
+    const timeA = new Date(`${a.match.date}T${a.match.time || '12:00'}`).getTime();
+    const timeB = new Date(`${b.match.date}T${b.match.time || '12:00'}`).getTime();
+    return timeA - timeB;
+  });
+
   const totalPossibleMatches = otherPlayers.length;
   const completedCount = completedOpponents.length;
   const completionPercentage = totalPossibleMatches > 0 ? Math.round((completedCount / totalPossibleMatches) * 100) : 0;

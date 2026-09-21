@@ -3,7 +3,7 @@
 // Cache-First for production hashed /assets/* and static branding assets.
 // Explicitly ignores all development modules, Vite client, and external APIs.
 
-const CACHE_VERSION = 'lgt-v2026-clean-v4';
+const CACHE_VERSION = 'lgt-v2026-clean-v5';
 const STATIC_ASSETS = [
   '/logo.svg',
   '/icon.svg',

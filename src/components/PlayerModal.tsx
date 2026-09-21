@@ -28,10 +28,15 @@ export const PlayerModal: React.FC<PlayerModalProps> = ({
 
   // Filter player matches
   const playerMatches = matches
-    .filter((m) => m.player1Id === player.id || m.player2Id === player.id)
+    .filter((m) => m.player1Id === player.id || m.player2Id === player.id);
+
+  const completedMatches = [...playerMatches]
+    .filter((m) => m.status === 'completed')
     .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
-  const completedMatches = playerMatches.filter((m) => m.status === 'completed');
+  const scheduledMatches = playerMatches
+    .filter((m) => m.status === 'scheduled')
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   const wins = completedMatches.filter((m) => m.winnerId === player.id).length;
   const losses = completedMatches.length - wins;
   const winRate = completedMatches.length > 0 ? Math.round((wins / completedMatches.length) * 100) : 0;
@@ -246,6 +251,56 @@ export const PlayerModal: React.FC<PlayerModalProps> = ({
               ))}
             </div>
           </div>
+
+          {/* Section: Scheduled Matches */}
+          {scheduledMatches.length > 0 && (
+            <div className="space-y-3">
+              <h3 className="font-bold text-stone-900 text-sm flex items-center gap-1.5">
+                <Clock className="w-4 h-4 text-amber-600" />
+                <span>Nadchodzące mecze ({scheduledMatches.length})</span>
+              </h3>
+
+              <div className="space-y-2">
+                {scheduledMatches.map((m) => {
+                  const opponent = players.find(
+                    (p) => p.id === (m.player1Id === player.id ? m.player2Id : m.player1Id)
+                  );
+                  const surfaceInfo = m.surface ? SURFACE_NAMES[m.surface] : null;
+
+                  return (
+                    <div
+                      key={m.id}
+                      className="p-3 bg-amber-50/40 rounded-2xl border border-amber-200/80 flex items-center justify-between gap-3 text-xs"
+                    >
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-stone-900">
+                            vs {opponent?.name}
+                          </span>
+                          {surfaceInfo && (
+                            <span className="text-[10px] text-stone-500">
+                              • {surfaceInfo.label}
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[11px] text-stone-500 mt-1 flex items-center gap-2">
+                          <span>{m.date}</span>
+                          {m.time && <span>• {m.time}</span>}
+                          {m.courtName && <span>• {m.courtName}</span>}
+                        </div>
+                      </div>
+
+                      <div className="text-right shrink-0">
+                        <span className="text-[11px] font-bold text-amber-900 bg-amber-100/80 px-2 py-1 rounded-lg">
+                          Do rozegrania
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {/* Section: Match History */}
           <div className="space-y-3">
