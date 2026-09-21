@@ -1,6 +1,14 @@
 import { execSync } from 'child_process';
 
-const GITHUB_TOKEN = process.env.GITHUB_TOKEN?.trim();
+let rawToken = process.env.GITHUB_TOKEN?.trim() || '';
+// Usuwamy ewentualny znak '=' lub cudzysłowy jeśli wkradły się podczas wklejania
+if (rawToken.startsWith('=')) {
+  rawToken = rawToken.substring(1).trim();
+}
+if ((rawToken.startsWith('"') && rawToken.endsWith('"')) || (rawToken.startsWith("'") && rawToken.endsWith("'"))) {
+  rawToken = rawToken.slice(1, -1).trim();
+}
+const GITHUB_TOKEN = rawToken;
 const REPO_OWNER = 'PrzemyslawChlus';
 const REPO_NAME = 'LGT2026';
 const BRANCH = 'main';
