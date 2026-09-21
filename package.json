@@ -11,7 +11,8 @@
     "test": "tsx scripts/verify-prod.ts",
     "test:deploy": "tsx scripts/verify-post-deploy.ts",
     "backup": "tsx scripts/backup-to-json.ts",
-    "sync:github": "git push origin main",
+    "push:github": "tsx scripts/push-to-github.ts",
+    "sync:github": "tsx scripts/push-to-github.ts",
     "lint": "tsc --noEmit"
   },
   "dependencies": {
