@@ -1,0 +1,73 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 64 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // Players collection
+    match /players/{playerId} {
+      allow read: if true;
+      allow create, update: if isValidId(playerId)
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0
+        && request.resource.data.name.size() <= 100;
+      allow delete: if isValidId(playerId);
+    }
+
+    // Matches collection
+    match /matches/{matchId} {
+      allow read: if true;
+      allow create, update: if isValidId(matchId)
+        && request.resource.data.player1Id is string
+        && request.resource.data.player2Id is string
+        && request.resource.data.sets is list;
+      allow delete: if isValidId(matchId);
+    }
+
+    // League settings
+    match /settings/{settingId} {
+      allow read: if true;
+      allow create, update: if isValidId(settingId)
+        && request.resource.data.leagueName is string
+        && request.resource.data.points2_0 is number;
+      allow delete: if isValidId(settingId);
+    }
+
+    // Users collection
+    match /users/{userId} {
+      allow read: if true;
+      allow create, update: if isValidId(userId)
+        && request.resource.data.email is string
+        && request.resource.data.email.size() <= 120
+        && request.resource.data.role is string;
+      allow delete: if isValidId(userId);
+    }
+
+    // System logs collection for auditing registrations, logins, errors, and admin actions
+    match /system_logs/{logId} {
+      allow read: if true;
+      allow create, update: if isValidId(logId)
+        && request.resource.data.action is string
+        && request.resource.data.timestamp is number;
+      allow delete: if isValidId(logId);
+    }
+
+    // Notifications collection for push and in-app alerts
+    match /notifications/{notificationId} {
+      allow read: if true;
+      allow create, update: if isValidId(notificationId)
+        && request.resource.data.title is string
+        && request.resource.data.title.size() <= 200
+        && request.resource.data.body is string
+        && request.resource.data.body.size() <= 500
+        && request.resource.data.createdAt is number;
+      allow delete: if isValidId(notificationId);
+    }
+
+    // Deny all other arbitrary collections
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

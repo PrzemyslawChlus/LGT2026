@@ -1,0 +1,6 @@
+{
+  "name": "Liga Gentlemanów Tenisa",
+  "description": "Oficjalna aplikacja PWA do prowadzenia rozgrywek, wyników i terminarza Ligi Gentlemanów Tenisa.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

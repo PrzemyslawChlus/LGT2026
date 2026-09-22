@@ -1,0 +1,95 @@
+{
+  "entities": {
+    "Player": {
+      "collection": "players",
+      "fields": {
+        "id": { "type": "string", "required": true },
+        "name": { "type": "string", "required": true },
+        "nickname": { "type": "string" },
+        "phone": { "type": "string", "required": true },
+        "email": { "type": "string" },
+        "avatarColor": { "type": "string", "required": true },
+        "playStyle": { "type": "string" },
+        "preferredSurfaces": { "type": "array" },
+        "preferredTimes": { "type": "string" },
+        "preferredCourts": { "type": "string" },
+        "status": { "type": "string", "required": true },
+        "notes": { "type": "string" }
+      }
+    },
+    "Match": {
+      "collection": "matches",
+      "fields": {
+        "id": { "type": "string", "required": true },
+        "player1Id": { "type": "string", "required": true },
+        "player2Id": { "type": "string", "required": true },
+        "date": { "type": "string", "required": true },
+        "time": { "type": "string" },
+        "courtName": { "type": "string" },
+        "surface": { "type": "string" },
+        "sets": { "type": "array", "required": true },
+        "winnerId": { "type": "string" },
+        "status": { "type": "string", "required": true },
+        "notes": { "type": "string" },
+        "createdAt": { "type": "number", "required": true }
+      }
+    },
+    "LeagueSettings": {
+      "collection": "settings",
+      "fields": {
+        "leagueName": { "type": "string", "required": true },
+        "season": { "type": "string", "required": true },
+        "points2_0": { "type": "number", "required": true },
+        "points2_1": { "type": "number", "required": true },
+        "points1_2": { "type": "number", "required": true },
+        "points0_2": { "type": "number", "required": true },
+        "superTiebreakDecider": { "type": "boolean", "required": true }
+      }
+    },
+    "User": {
+      "collection": "users",
+      "fields": {
+        "id": { "type": "string", "required": true },
+        "email": { "type": "string", "required": true },
+        "name": { "type": "string", "required": true },
+        "playerId": { "type": "string" },
+        "role": { "type": "string", "required": true },
+        "status": { "type": "string", "required": true },
+        "phone": { "type": "string" },
+        "nickname": { "type": "string" },
+        "playStyle": { "type": "string" },
+        "preferredCourts": { "type": "string" },
+        "preferredTimes": { "type": "string" },
+        "createdAt": { "type": "number", "required": true },
+        "passwordHash": { "type": "string" }
+      }
+    },
+    "SystemLog": {
+      "collection": "system_logs",
+      "fields": {
+        "id": { "type": "string", "required": true },
+        "action": { "type": "string", "required": true },
+        "level": { "type": "string", "required": true },
+        "timestamp": { "type": "number", "required": true },
+        "userEmail": { "type": "string" },
+        "userName": { "type": "string" },
+        "details": { "type": "string" },
+        "metadata": { "type": "object" }
+      }
+    },
+    "Notification": {
+      "collection": "notifications",
+      "fields": {
+        "id": { "type": "string", "required": true },
+        "title": { "type": "string", "required": true },
+        "body": { "type": "string", "required": true },
+        "type": { "type": "string", "required": true },
+        "recipientPlayerIds": { "type": "array", "required": true },
+        "matchId": { "type": "string" },
+        "createdAt": { "type": "number", "required": true },
+        "url": { "type": "string" },
+        "readBy": { "type": "array" }
+      }
+    }
+  }
+}
