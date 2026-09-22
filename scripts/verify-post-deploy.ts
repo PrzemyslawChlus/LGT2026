@@ -7,9 +7,12 @@ import {
   getTwoMonthsLaterDate,
   checkRematchEligibility,
   formatDatePl,
+  isScheduledMatchOverdue,
+  getMatchStartTimestamp,
 } from '../src/utils/tennisRules';
 import { Player, Match, LeagueSettings } from '../src/types';
 import { changeUserPassword } from '../src/utils/auth';
+import { buildMatchOverdueReminderNotification } from '../src/utils/notifications';
 import fs from 'fs';
 import path from 'path';
 
@@ -268,9 +271,71 @@ async function runPostDeployVerification() {
   assert(standings[2].player.id === 'p3', 'Zawodnik Trzy na 3. miejscu tabeli');
 
   // -------------------------------------------------------------
-  // 7. WERYFIKACJA SIECIOWA / HEALTH CHECK & SSL
+  // 7. WERYFIKACJA ZALEGŁYCH MECZÓW, POWIADOMIEŃ I DŹWIĘKÓW TENISOWYCH
   // -------------------------------------------------------------
-  console.log('\n🌐 MODUŁ 7: Weryfikacja dostępności HTTP & SSL');
+  console.log('\n🔔 MODUŁ 7: Weryfikacja zaległych meczów, powiadomień i dźwięku tenisowego');
+
+  const mp3Path = path.join(rootDir, 'public', 'tennis-hit.mp3');
+  const wavPath = path.join(rootDir, 'public', 'tennis-hit.wav');
+  assert(fs.existsSync(mp3Path) && fs.statSync(mp3Path).size > 1000, 'Plik audio public/tennis-hit.mp3 istnieje i posiada poprawny rozmiar');
+  assert(fs.existsSync(wavPath) && fs.statSync(wavPath).size > 1000, 'Plik audio public/tennis-hit.wav istnieje i posiada poprawny rozmiar');
+
+  // Test logiki detekcji zaległego meczu
+  const testNow = new Date('2026-09-22T18:00:00Z').getTime();
+  const pastMatch: Match = {
+    id: 'm_overdue_test',
+    player1Id: 'p1',
+    player2Id: 'p2',
+    date: '2026-09-22',
+    time: '15:00',
+    status: 'scheduled',
+    sets: [],
+    createdAt: Date.now(),
+  };
+  const futureMatch: Match = {
+    id: 'm_future_test',
+    player1Id: 'p1',
+    player2Id: 'p2',
+    date: '2026-09-22',
+    time: '20:00',
+    status: 'scheduled',
+    sets: [],
+    createdAt: Date.now(),
+  };
+
+  assert(isScheduledMatchOverdue(pastMatch, 0, testNow), 'Mecz zaplanowany na 15:00 jest zaległy o 18:00 (offset 0h)');
+  assert(isScheduledMatchOverdue(pastMatch, 2, testNow), 'Mecz zaplanowany na 15:00 kwalifikuje się do push 2h o 18:00 (minęły 3h >= 2h)');
+  assert(!isScheduledMatchOverdue(futureMatch, 0, testNow), 'Mecz zaplanowany na 20:00 NIE jest zaległy o 18:00');
+  assert(!isScheduledMatchOverdue(futureMatch, 2, testNow), 'Mecz zaplanowany na 20:00 NIE kwalifikuje się do push 2h');
+
+  // Test generatora powiadomień
+  const testPlayers: Player[] = [
+    {
+      id: 'p1',
+      name: 'Jan Kowalski',
+      phone: '+48 500 100 200',
+      status: 'active',
+      avatarColor: 'bg-emerald-700',
+      preferredSurfaces: ['clay'],
+    },
+    {
+      id: 'p2',
+      name: 'Adam Nowak',
+      phone: '+48 500 200 300',
+      status: 'active',
+      avatarColor: 'bg-amber-700',
+      preferredSurfaces: ['hard'],
+    },
+  ];
+  const reminderNotif = buildMatchOverdueReminderNotification(pastMatch, testPlayers);
+  assert(reminderNotif.type === 'match_overdue_reminder', 'Typ powiadomienia to match_overdue_reminder');
+  assert(reminderNotif.recipientPlayerIds.includes('p1') && reminderNotif.recipientPlayerIds.includes('p2'), 'Powiadomienie adresowane do obu uczestników');
+  assert(reminderNotif.matchId === 'm_overdue_test', 'Powiadomienie skojarzone z poprawnym ID meczu');
+
+  // -------------------------------------------------------------
+  // 8. WERYFIKACJA SIECIOWA / HEALTH CHECK & SSL
+  // -------------------------------------------------------------
+  console.log('\n🌐 MODUŁ 8: Weryfikacja dostępności HTTP & SSL');
 
   const testUrls = [
     process.env.DEPLOY_URL,

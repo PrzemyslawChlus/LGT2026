@@ -3,7 +3,9 @@
 **Plik skryptu:** `scripts/verify-post-deploy.ts`  
 **Polecenie:** `npm run test:deploy`  
 **Czas wykonania:** ~2-3 sekundy  
-**Status bieżący:** 32 PASSED, 0 FAILED  
+**Status bieżący:** 41 PASSED, 0 FAILED, 0 SKIPPED  
+**Wersja:** `v2026.20260922.2205`  
+**Changelog:** Pełny wykaz zmian w [`CHANGELOG.md`](./CHANGELOG.md)
 
 ---
 
@@ -13,18 +15,19 @@ Wdrożenie nowej wersji aplikacji na Cloud Run / Firebase Hosting wymaga natychm
 1. Istotne reguły biznesowe (punktacja 3:0, 2:1, 1:2, 0:3, sparingi, reguła 2 miesięcy kalendarzowych) nie zostały przypadkowo naruszone.
 2. Zabezpieczenia autoryzacji (wymóg hasła $\ge 6$ znaków, logowanie wyłącznie e-mailem) działają niezawodnie.
 3. Pliki konfiguracyjne routingu Cloud Run i Firebase Hosting są na swoim miejscu.
-4. Publiczna domena produkcyjna (`https://lgt2026.pl`) odpowiada kodem HTTP 200 z poprawnym certyfikatem SSL.
+4. Nowe funkcjonalności (weryfikacja minionych meczów, automatyczny push 2h po terminie, zasoby audio forehandu) działają bezbłędnie.
+5. Publiczna domena produkcyjna (`https://lgt2026.pl`) odpowiada kodem HTTP 200 z poprawnym certyfikatem SSL.
 
 ---
 
 ## 2. Zestaw Modułów Testowych
 
-Suita składa się z 7 zautomatyzowanych modułów weryfikacyjnych:
+Suita składa się z 8 zautomatyzowanych modułów weryfikacyjnych (41 testów jednostkowych i integracyjnych):
 
 ### Moduł 1: Artefakty Produkcyjne i Konfiguracja Wdrożenia
 - Weryfikacja obecności i poprawności pliku `firebase.json`.
 - Sprawdzenie, czy reguła rewrite kieruje ruch `/**` do serwisu Cloud Run `liga-gentleman-w-tenisa` w regionie `europe-west2`.
-- Sprawdzenie pliku `firestore.rules` (wersja 2 reguł bazy danych).
+- Sprawdzenie pliku `firestore.rules` (wersja 2 reguł bazy danych Firestore).
 
 ### Moduł 2: Bezpieczeństwo i Logika Autoryzacji
 - **Test hasła minimalnego:** Próba ustawienia hasła poniżej 6 znaków (np. 5-znakowego) musi rzucić wyjątkiem z informacją o błędzie.
@@ -59,79 +62,31 @@ Suita składa się z 7 zautomatyzowanych modułów weryfikacyjnych:
   - Sparing towarzyski = ignorowany w tabeli ligowej (0 pkt).
 - Weryfikacja prawidłowego wyliczenia pozycji w rankingu (1., 2., 3. miejsce).
 
-### Moduł 7: Dostępność Sieciowa i Certyfikat SSL (Smoke Test)
-- Wykonanie zapytania HTTP GET do domeny produkcyjnej `https://lgt2026.pl`.
-- Weryfikacja statusu HTTP (200 OK).
-- Potwierdzenie aktywnego szyfrowania SSL/TLS.
+### Moduł 7: Weryfikacja Zaległych Meczów, Powiadomień i Dźwięku Tenisowego
+- Weryfikacja obecności i minimalnego rozmiaru plików audio `/public/tennis-hit.mp3` oraz `/public/tennis-hit.wav`.
+- Detekcja minionego terminu meczu (`isScheduledMatchOverdue(pastMatch, 0) === true`).
+- Kwalifikacja do automatycznego powiadomienia push 2h po terminie (`isScheduledMatchOverdue(pastMatch, 2) === true`).
+- Prawidłowe odrzucenie meczów przyszłych z obu powyższych warunków.
+- Weryfikacja generatora powiadomień `buildMatchOverdueReminderNotification` (typ `match_overdue_reminder`, przypisanie obu graczy, skojarzenie z ID meczu).
+
+### Moduł 8: Weryfikacja Dostępności HTTP & SSL
+- Odpytanie produkcyjnego adresu URL (`https://lgt2026.pl`).
+- Weryfikacja odpowiedzi z kodem HTTP 200 OK.
+- Sprawdzenie aktywnego i ważnego szyfrowania SSL/TLS (HTTPS).
 
 ---
 
-## 3. Instrukcja Uruchomienia
+## 3. Uruchamianie Testów
 
-### Uruchomienie lokalne / w kontenerze:
 ```bash
+# Uruchomienie pełnego zestawu 41 testów:
 npm run test:deploy
 ```
 
-### Uruchomienie z testem konkretnego adresu URL (np. w pipeline CI/CD):
-```bash
-DEPLOY_URL=https://lgt2026.pl npm run test:deploy
-```
-
-### Przykładowe wyjście z pomyślnego uruchomienia:
+Przykładowe podsumowanie w konsoli:
 ```text
 ================================================================
-🎾 LIGA GENTLEMANÓW W TENISIE — SUITA TESTÓW AUTOMATYCZNYCH (POST-DEPLOY)
-================================================================
-
-📦 MODUŁ 1: Weryfikacja artefaktów produkcyjnych i konfiguracji
-  ✅ PASS: Plik konfiguracyjny firebase.json istnieje
-  ✅ PASS: firebase.json zawiera sekcję hosting
-  ✅ PASS: firebase.json posiada rewrite do Cloud Run (liga-gentleman-w-tenisa w europe-west2)
-  ✅ PASS: Reguły bazy danych firestore.rules istnieją
-  ✅ PASS: firestore.rules używają wersji 2
-  ✅ PASS: firestore.rules definiują główny root bazy
-
-🔒 MODUŁ 2: Weryfikacja autoryzacji i reguł bezpieczeństwa
-  ✅ PASS: Blokada hasła < 6 znaków działa prawidłowo (wymóg min. 6 znaków spełniony)
-
-🎾 MODUŁ 3: Silnik tenisowy i walidacja wyników setów
-  ✅ PASS: Prawidłowy set 6:4
-  ✅ PASS: Prawidłowy set 6:0 (bajgiel)
-  ✅ PASS: Prawidłowy set 7:5
-  ✅ PASS: Set 6:5 odrzucony (gra do 7)
-  ✅ PASS: Set 7:6 (7:5) tie-break zatwierdzony
-  ✅ PASS: Tie-break z różnicą tylko 1 pkt odrzucony
-  ✅ PASS: Super tie-break 10:8 zatwierdzony
-  ✅ PASS: Super tie-break poniżej 10 pkt odrzucony
-
-🏆 MODUŁ 4: Walidacja całego meczu
-  ✅ PASS: Mecz 2:0 wygrywa Gracz 1
-  ✅ PASS: Mecz 2:1 z super tie-breakiem wygrywa Gracz 1
-  ✅ PASS: Prawidłowe formatowanie wyniku meczu (6:4, 6:7 (4), [10:8])
-
-📅 MODUŁ 5: Reguła 2 miesięcy kalendarzowych na mecze rewanżowe
-  ✅ PASS: 15 maja + 2 miesiące = 15 lipca
-  ✅ PASS: 31 maja + 2 miesiące = 31 lipca
-  ✅ PASS: 31 grudnia + 2 miesiące = 28 lutego (rok nieprzestępny)
-  ✅ PASS: Rewanż przed upływem 2 miesięcy kalendarzowych oznaczony jako Towarzyski
-  ✅ PASS: Następny mecz ligowy dopuszczony od 2026-07-10
-  ✅ PASS: Rewanż po równo 2 miesiącach kalendarzowych dopuszczony jako Ligowy
-
-📊 MODUŁ 6: Punktacja (3:0, 2:1, 1:2, 0:3) oraz Tabela
-  ✅ PASS: Zawodnik Jeden ma 3 pkt (2:0 w lidze, sparing zignorowany)
-  ✅ PASS: Zawodnik Dwa ma 2 pkt (0 za 0:2 i 2 za 2:1)
-  ✅ PASS: Zawodnik Trzy ma 1 pkt (1 za 1:2)
-  ✅ PASS: Zawodnik Jeden na 1. miejscu tabeli
-  ✅ PASS: Zawodnik Dwa na 2. miejscu tabeli
-  ✅ PASS: Zawodnik Trzy na 3. miejscu tabeli
-
-🌐 MODUŁ 7: Weryfikacja dostępności HTTP & SSL
-  Sprawdzanie dostępności publicznej: https://lgt2026.pl...
-  ✅ PASS: Adres https://lgt2026.pl zwraca status HTTP 200
-  ✅ PASS: Protokół SSL/TLS aktywny dla https://lgt2026.pl
-
-================================================================
-WYNIK KOŃCOWY TESTÓW: 32 PASSED, 0 FAILED, 0 SKIPPED
+WYNIK KOŃCOWY TESTÓW: 41 PASSED, 0 FAILED, 0 SKIPPED
 ================================================================
 ```
+W przypadku wykrycia jakiejkolwiek niezgodności proces kończy się kodem wyjścia `1`, co wstrzymuje automatyczne wdrożenia w potokach CI/CD.

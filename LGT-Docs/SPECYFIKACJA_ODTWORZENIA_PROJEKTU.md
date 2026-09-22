@@ -1,7 +1,10 @@
 # Master Blueprint & Specyfikacja Odtworzenia Projektu (Dla Agenta AI)
 
 > **DLA MODELU / AGENTA KODUJĄCEGO AI:**  
-> Niniejszy dokument stanowi samowystarczalną specyfikację techniczną poziomu L4. Posiadasz w nim kompletny schemat architektury, typów, reguł biznesowych, algorytmów oraz komponentów, który pozwala odtworzyć aplikację **Liga Gentlemanów w Tenisie (LGT)** od absolutnego zera do stanu produkcyjnego bez żadnych dodatkowych informacji.
+> Niniejszy dokument stanowi samowystarczalną specyfikację techniczną poziomu L4. Posiadasz w nim kompletny schemat architektury, typów, reguł biznesowych, algorytmów oraz komponentów, który pozwala odtworzyć aplikację **Liga Gentlemanów w Tenisie (LGT 2026)** od absolutnego zera do stanu produkcyjnego bez żadnych dodatkowych informacji.
+>
+> **Wersja:** `v2026.20260922.2205`  
+> **Changelog:** Pełna historia zmian znajduje się w pliku [`CHANGELOG.md`](./CHANGELOG.md).
 
 ---
 
@@ -9,9 +12,9 @@
 
 - **Nazwa:** Liga Gentlemanów w Tenisie Ziemnym (LGT 2026)
 - **Typ aplikacji:** Responsywna aplikacja webowa + PWA (Progressive Web App)
-- **Stos bazowy:** React 19 + TypeScript + Vite + Tailwind CSS v4 + Express backend proxy + Google Cloud Firestore
+- **Stos bazowy:** React 19 + TypeScript + Vite + Tailwind CSS v4 + Express backend proxy + Google Cloud Firestore + GitHub Actions CI/CD
 - **Estetyka:** Tradycyjny styl klubu tenisowego dla dżentelmenów. Dominujące barwy: głęboka butelkowa zieleń (`emerald-950`, `emerald-800`), ciepły kamień/kość słoniowa (`stone-100`, `stone-50`, `stone-900`), akcenty złota i bursztynu (`amber-500`, `amber-600`).
-- **Standardy:** Rygorystyczny TypeScript (`strict: true`), zero ostrzeżeń lintera, zero mockowanych atrap (pełna trwałość w Firestore + fallback LocalStorage).
+- **Standardy:** Rygorystyczny TypeScript (`strict: true`), zero błędów kompilacji, autentyczne audio (forehand na korcie krytym), powiadomienia Web Push, pełna trwałość danych w Firestore z fallbackiem LocalStorage.
 
 ---
 
@@ -20,17 +23,20 @@
 ### 2.1. `package.json`
 ```json
 {
-  "name": "liga-gentlemanow-tenisa",
+  "name": "react-example",
   "private": true,
-  "version": "1.0.0",
+  "version": "0.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite --port=3000 --host=0.0.0.0",
     "build": "vite build",
     "preview": "vite preview",
+    "clean": "rm -rf dist server.js",
     "test": "tsx scripts/verify-prod.ts",
     "test:deploy": "tsx scripts/verify-post-deploy.ts",
     "backup": "tsx scripts/backup-to-json.ts",
+    "push:github": "tsx scripts/push-to-github.ts",
+    "sync:github": "tsx scripts/push-to-github.ts",
     "lint": "tsc --noEmit"
   },
   "dependencies": {
@@ -88,7 +94,7 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     match /{document=**} {
-      allow read, write: if true; // Zabezpieczone dodatkowo w warstwie logiki aplikacji
+      allow read, write: if true;
     }
   }
 }
@@ -101,7 +107,8 @@ service cloud.firestore {
 ```typescript
 export type PlayerStatus = 'active' | 'inactive' | 'injured';
 export type MatchType = 'league' | 'friendly';
-export type MatchStatus = 'completed' | 'pending_confirmation';
+export type MatchStatus = 'scheduled' | 'completed';
+export type SurfaceType = 'clay' | 'hard' | 'grass' | 'carpet';
 
 export interface Player {
   id: string;
@@ -129,15 +136,21 @@ export interface Match {
   player1Id: string;
   player2Id: string;
   date: string; // YYYY-MM-DD
+  time?: string; // HH:mm
   sets: SetScore[];
-  winnerId: string;
+  winnerId?: string;
   isFriendly?: boolean;
+  friendlyReason?: string;
   court?: string;
+  courtName?: string;
+  surface?: SurfaceType;
   notes?: string;
-  status?: MatchStatus;
+  status: MatchStatus;
   confirmedByPlayer1?: boolean;
   confirmedByPlayer2?: boolean;
   createdAt?: number;
+  overduePushSent?: boolean;
+  overdueNotifiedAt?: number;
 }
 
 export interface StandingRow {
@@ -156,14 +169,42 @@ export interface StandingRow {
   form: ('W' | 'L')[];
 }
 
+export type NotificationType =
+  | 'match_scheduled'
+  | 'match_completed'
+  | 'match_overdue_reminder'
+  | 'system'
+  | 'test';
+
+export interface LeagueNotification {
+  id: string;
+  title: string;
+  body: string;
+  type: NotificationType;
+  recipientPlayerIds: string[];
+  matchId?: string;
+  createdAt: number;
+  readBy?: string[];
+  url?: string;
+}
+
+export interface NotificationSettings {
+  enabled: boolean;
+  notifyScheduled: boolean;
+  notifyResults: boolean;
+  notifyOverdue: boolean;
+  soundEnabled: boolean;
+  selectedPlayerId?: string;
+}
+
 export interface LeagueSettings {
   leagueName: string;
   season: string;
-  points2_0: number; // domyślnie 3
-  points2_1: number; // domyślnie 2
-  points1_2: number; // domyślnie 1
-  points0_2: number; // domyślnie 0
-  superTiebreakDecider: boolean; // domyślnie true
+  points2_0: number; // 3 pkt
+  points2_1: number; // 2 pkt
+  points1_2: number; // 1 pkt
+  points0_2: number; // 0 pkt
+  superTiebreakDecider: boolean; // true
   minDaysBetweenMatches?: number;
   startDate?: string;
   endDate?: string;
@@ -188,7 +229,6 @@ export interface User {
 ## 4. Matematyka Tenisowa i Reguły Gry (`src/utils/tennisRules.ts`)
 
 ### 4.1. Zasada 2 Miesięcy Kalendarzowych dla Rewanży
-Mecz rewanżowy pomiędzy graczem A i B może być ligowy wyłącznie po upływie dwóch miesięcy kalendarzowych.
 ```typescript
 export function getTwoMonthsLaterDate(dateString: string): string {
   const [yearStr, monthStr, dayStr] = dateString.split('-');
@@ -202,7 +242,7 @@ export function getTwoMonthsLaterDate(dateString: string): string {
     month = month % 12;
   }
 
-  // Korekta dni w miesiącu docelowym (np. 31 grudnia + 2 msc -> 28 lutego)
+  // Korekta liczby dni w miesiącu docelowym (np. 31 grudnia + 2 msc -> 28 lutego)
   const daysInTargetMonth = new Date(year, month + 1, 0).getDate();
   const adjustedDay = Math.min(day, daysInTargetMonth);
 
@@ -217,7 +257,6 @@ export function checkRematchEligibility(
   matchDate: string,
   matches: Match[]
 ): { isFriendly: boolean; nextAllowedDate?: string; previousMatch?: Match } {
-  // Szukamy wyłącznie zakończonych meczów ligowych pomiędzy tymi graczami
   const pastLeagueMatches = matches
     .filter(
       (m) =>
@@ -248,79 +287,107 @@ export function checkRematchEligibility(
 }
 ```
 
-### 4.2. Walidacja Wyników Seta
-- Zwykły set: 6:0 do 6:4, 7:5, lub 7:6 (wymaga tie-breaka min. 7:X z różnicą 2).
-- Super tie-break (jako 3. set): min. 10 punktów, min. 2 punkty przewagi.
-- Odrzucenie: 6:5, 6:6 bez tie-breaka, wygrana z przewagą 1 punktu.
+### 4.2. Detekcja Minionych i Zaległych Meczów (`isScheduledMatchOverdue`)
+```typescript
+export function getMatchStartTimestamp(match: Pick<Match, 'date' | 'time'>): number {
+  if (!match.date) return 0;
+  const timeStr = match.time && match.time.trim().length > 0 ? match.time.trim() : '23:59';
+  const isoCandidate = `${match.date}T${timeStr}:00`;
+  const parsed = Date.parse(isoCandidate);
+  if (!isNaN(parsed)) return parsed;
+  return new Date(`${match.date} 00:00:00`).getTime();
+}
+
+export function isScheduledMatchOverdue(
+  match: Match,
+  offsetHours: number = 0,
+  nowTimestamp: number = Date.now()
+): boolean {
+  if (match.status !== 'scheduled') return false;
+  const startTs = getMatchStartTimestamp(match);
+  if (!startTs) return false;
+  const thresholdMs = offsetHours * 60 * 60 * 1000;
+  return nowTimestamp >= startTs + thresholdMs;
+}
+```
 
 ### 4.3. Punktacja i Klasyfikacja w Tabeli (`calculateStandings`)
 - Zwycięstwo 2:0: **3 punkty** (przegrany 0)
 - Zwycięstwo 2:1: **2 punkty** (przegrany 1)
-- Mecze z `isFriendly === true`: **0 punktów**, nie wpływają na tabelę.
-- **Kolejność sortowania tabeli:**
-  1. Liczba punktów (malejąco)
-  2. Bilans setów (`setDiff`)
-  3. Bilans gemów (`gameDiff`)
+- Sparingi (`isFriendly === true`): **0 punktów**, ignorowane przy liczeniu bilansów ligowych.
+- Hierarchia sortowania:
+  1. Punkty
+  2. Różnica setów (`setDiff`)
+  3. Różnica gemów (`gameDiff`)
   4. Bezpośredni pojedynek (H2H)
   5. Liczba rozegranych meczów
 
 ---
 
-## 5. Autoryzacja i Bezpieczeństwo (`src/utils/auth.ts`)
+## 5. Przepływy Użytkownika i Kluczowe Interakcje
 
-### 5.1. Kluczowe Wymagania:
-1. **Logowanie wyłącznie adresem e-mail:** Wyszukiwanie użytkownika następuje po `email.toLowerCase()`. Wszelkie logowanie nazwiskiem zostało wyłączone.
-2. **Hasła min. 6 znaków:**
-   - W formularzu rejestracji (`regPassword.length >= 6`)
-   - W profilu gracza przy zmianie własnego hasła (`newPassword.length >= 6`)
-   - W panelu komisarza przy resecie hasła (`newPasswordInput.length >= 6`)
-   - W metodach `registerUser`, `changeUserPassword`, `updateUserProfile`.
-3. **Numer telefonu z nienaruszalnym prefiksem `+48`:**
-   - Element `+48` jest sztywnym segmentem kontrolki.
-   - Użytkownik wpisuje 9 cyfr formatowanych jako `XXX XXX XXX`.
-   - Wklejenie tekstu z `+48` usuwa powielony prefiks.
-4. **Ochrona Komisarza Ligi:**
-   - Konto `przemyslaw.chlus@gmail.com` / `przemyslaw.chlus@comp-plus.pl` jest chronione przed usunięciem lub degradacją roli do zwykłego gracza.
+### 5.1. Weryfikacja Zaległego Meczu przy Logowaniu
+1. Gdy użytkownik loguje się lub odświeża sesję, `App.tsx` w `useEffect` sprawdza, czy użytkownik jest uczestnikiem meczu o statusie `scheduled`, którego data minęła (`isScheduledMatchOverdue(m, 0)`).
+2. Jeśli tak, otwiera `OverdueMatchPromptModal`.
+3. **Decyzje:**
+   - **Tak, mecz się odbył:** Przekazuje mecz do `handleCompleteScheduledMatch(match)`, co otwiera `MatchModal` w trybie wpisania wyniku.
+   - **Nie, mecz się nie odbył:** Wywołuje `handleDeleteMatch(match.id)` — usuwa mecz z Firestore i stanu. Wystarczy akcja jednego gracza, aby obaj mieli uporządkowany kalendarz.
+   - **Przełóż:** Otwiera edycję terminu meczu.
+
+### 5.2. Automatyczny Push 2h po Terminie Meczów
+1. Co 60 sekund proces w tle sprawdza mecze ze statusem `scheduled`, dla których minęło $\ge 2$ godziny od godziny rozpoczęcia (`isScheduledMatchOverdue(m, 2)`).
+2. Jeśli mecz nie ma jeszcze wprowadzonego wyniku i `!m.overduePushSent`:
+   - Tworzy notyfikację `match_overdue_reminder`.
+   - Oznacza w Firestore `overduePushSent: true`.
+   - Wywołuje Web Push API i odtwarza studyjny dźwięk forehandu tenisowego (`tennis-hit.mp3`).
+3. Jeśli wynik został wprowadzony w ciągu tych 2 godzin, mecz ma `status === 'completed'` i powiadomienie nie jest wysyłane.
 
 ---
 
-## 6. Architektura Widoków i Komponentów UI
+## 6. Architektura Komponentów UI
 
 ```
 src/
-├── App.tsx                    # Główny stan, synchronizacja z Firestore, nawigacja
+├── App.tsx                          # Główny stan, synchronizacja z Firestore, monitory zaległości i push
 ├── components/
-│   ├── Header.tsx             # Górny pasek, logo, stan sesji, przycisk PWA
-│   ├── Navigation.tsx         # Przełącznik widoków (Tabela, Mecze, H2H, Gracze, Konta)
-│   ├── StandingsTable.tsx     # Tabela ligowa z formą, bilansami i herbami
-│   ├── MatchesSchedule.tsx    # Terminarz i baza wyników (odznaki: Liga / Sparing)
-│   ├── AddMatchModal.tsx      # Modal zgłaszania meczu z auto-detekcją 2 msc i walidacją
-│   ├── H2HMatrix.tsx          # Macierz rywalizacji każdy-z-każdym
-│   ├── PlayersDirectory.tsx   # Karty graczy z szybkimi linkami tel: i wa.me
-│   ├── PlayerModal.tsx        # Karta profilowa ze statystykami i historią
-│   ├── PlayerEditModal.tsx    # Edycja profilu (styl gry, korty, zmiana hasła)
-│   ├── AdminAccountsManager.tsx # Panel komisarza (hasła, aktywacja, audit log, backup)
-│   ├── SettingsModal.tsx      # Parametry punktacji i sezonu
-│   ├── AuthView.tsx           # Logowanie i Rejestracja z Kodeksem Fair Play
-│   └── PwaInstallModal.tsx    # Instrukcja instalacji PWA (iOS / Android)
+│   ├── Header.tsx                   # Logo, status sesji, przycisk instalacji PWA, dzwonek powiadomień
+│   ├── MobileBottomNav.tsx          # Dolna nawigacja mobilna
+│   ├── StandingsTable.tsx           # Tabela ligowa z bilansami, herbami i formą
+│   ├── MatchesList.tsx              # Terminarz i baza wyników, wyróżnienie zaległych spotkań
+│   ├── MatchModal.tsx               # Modal wprowadzania wyniku oraz planowania meczów
+│   ├── OverdueMatchPromptModal.tsx  # Pytanie przy logowaniu: czy mecz się odbył? (Tak/Nie)
+│   ├── OpponentSuggester.tsx        # Widget rekomendacji nowych rywali (zasada 2 miesięcy)
+│   ├── NotificationDrawer.tsx       # Szuflada powiadomień, odtwarzacz audio, testy dźwięku i preferencje
+│   ├── NotificationToast.tsx        # Pływający baner powiadomień w aplikacji
+│   ├── VersionNotification.tsx      # Proaktywne powiadomienie o nowej wersji produkcyjnej
+│   ├── H2HMatrix.tsx                # Macierz pojedynków bezpośrednich
+│   ├── PlayersDirectory.tsx         # Katalog graczy z szybkimi linkami do połączenia i WhatsApp
+│   ├── PlayerModal.tsx              # Profil zawodnika, statystyki, styl gry
+│   ├── PlayerEditModal.tsx          # Edycja profilu gracza i zmiana hasła
+│   ├── AdminAccountsManager.tsx     # Panel Komisarza: zarządzanie kontami, hasła, audyt, backup
+│   ├── SettingsModal.tsx            # Ustawienia ligi i sezonu
+│   ├── AuthView.tsx                 # Ekran logowania i rejestracji z Kodeksem Fair Play
+│   ├── LgtDocsSection.tsx           # Wbudowana w aplikację przeglądarka dokumentacji i changeloga
+│   └── PwaInstallModal.tsx          # Instrukcja instalacji PWA na telefonach
 ├── utils/
-│   ├── tennisRules.ts         # Silnik tenisowy i reguła 2 miesięcy
-│   ├── auth.ts                # Autoryzacja, sesja, profile i Firestore sync
-│   └── firestoreSync.ts       # Reaktywne subskrypcje onSnapshot do Firestore
-├── data/
-│   └── initialData.ts         # Początkowe dane ligi i zawodników
-└── types.ts                   # Centralny rejestr typów
+│   ├── tennisRules.ts               # Silnik tenisowy, reguła 2 miesięcy, detekcja zaległych meczów
+│   ├── notifications.ts             # Web Push, audio uderzenia tenisowego (tennis-hit), generatory powiadomień
+│   ├── auth.ts                      # Logowanie e-mail, min. 6 znaków hasła, prefiks +48, ochrona Komisarza
+│   ├── opponentSuggester.ts         # Algorytm dopasowywania rywali
+│   ├── versionCheck.ts              # Sprawdzanie public/version.json
+│   └── logger.ts                    # Rejestr zdarzeń audytowych
+└── types.ts                         # Centralne typy TypeScript
 ```
 
 ---
 
 ## 7. Procedura Odtworzenia Krok po Kroku
 
-Jeżeli stawiasz aplikację w nowym środowisku:
-1. Skopiuj `package.json` i wykonaj `npm install`.
-2. Utwórz pliki `src/types.ts` i `src/utils/tennisRules.ts`.
-3. Utwórz `src/utils/auth.ts` z obsługą Firestore i fallbacku LocalStorage.
-4. Zaimplementuj komponenty UI z `src/components/`.
-5. Skonfiguruj `firebase.json` z rewrites do Cloud Run.
-6. Uruchom `npm run test:deploy`, aby zweryfikować 32 asercje poprawności.
-7. Zbuduj za pomocą `npm run build` i zdeployuj na Cloud Run.
+1. Zainstaluj pakiety z `package.json` (`npm install`).
+2. Przygotuj pliki `src/types.ts` i `src/utils/tennisRules.ts`.
+3. Umieść pliki audio `tennis-hit.mp3` i `tennis-hit.wav` w `/public`.
+4. Zaimplementuj `src/utils/notifications.ts` oraz zarejestruj Service Worker w `public/sw.js`.
+5. Zaimplementuj komponenty modali i widoków w `src/components/`.
+6. Skonfiguruj `firebase.json` i `firestore.rules`.
+7. Uruchom `npm run test:deploy`, aby zweryfikować poprawność reguł biznesowych.
+8. Uruchom `npm run push:github`, aby zsynchronizować zmiany z GitHub Actions i wdrożyć na produkcję.

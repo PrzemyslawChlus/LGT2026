@@ -1,3 +1,4 @@
+import docsChangelog from '../../LGT-Docs/CHANGELOG.md?raw';
 import docsApp from '../../LGT-Docs/DOKUMENTACJA_APLIKACJI.md?raw';
 import docsSpec from '../../LGT-Docs/SPECYFIKACJA_ODTWORZENIA_PROJEKTU.md?raw';
 import docsTests from '../../LGT-Docs/TESTY_AUTOMATYCZNE_PO_DEPLOYU.md?raw';
@@ -13,6 +14,14 @@ export interface DocFile {
 }
 
 export const LGT_DOCS: DocFile[] = [
+  {
+    id: 'changelog',
+    title: 'Dziennik Zmian (Changelog)',
+    filename: 'CHANGELOG.md',
+    description: 'Chronologiczny rejestr wydań, nowych funkcji, poprawek i ulepszeń systemu LGT 2026.',
+    badge: 'v2026.20260922.2205',
+    content: docsChangelog,
+  },
   {
     id: 'app-docs',
     title: 'Dokumentacja Aplikacji',
@@ -33,8 +42,8 @@ export const LGT_DOCS: DocFile[] = [
     id: 'tests-guide',
     title: 'Przewodnik po Testach Post-Deploy',
     filename: 'TESTY_AUTOMATYCZNE_PO_DEPLOYU.md',
-    description: 'Zestaw 32 testów automatycznych, weryfikacja SSL domeny lgt2026.pl, algorytmów i bezpieczeństwa.',
-    badge: '32 Testy (PASS)',
+    description: 'Zestaw 41 testów automatycznych, weryfikacja SSL domeny lgt2026.pl, algorytmów i powiadomień.',
+    badge: '41 Testów (PASS)',
     content: docsTests,
   },
   {
