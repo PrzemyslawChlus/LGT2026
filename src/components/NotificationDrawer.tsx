@@ -37,6 +37,7 @@ interface NotificationDrawerProps {
   currentUser: User | null;
   activePlayerId: string | null;
   onSelectActivePlayerId: (playerId: string | null) => void;
+  onOpenPushPromptModal?: () => void;
 }
 
 export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({
@@ -56,6 +57,7 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({
   currentUser,
   activePlayerId,
   onSelectActivePlayerId,
+  onOpenPushPromptModal,
 }) => {
   const [activeTab, setActiveTab] = useState<'list' | 'settings'>('list');
   const [testSent, setTestSent] = useState(false);
@@ -179,7 +181,13 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({
                   </p>
                   <button
                     type="button"
-                    onClick={onRequestPermission}
+                    onClick={() => {
+                      if (onOpenPushPromptModal) {
+                        onOpenPushPromptModal();
+                      } else {
+                        onRequestPermission();
+                      }
+                    }}
                     className="mt-2.5 inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 hover:bg-amber-600 active:bg-amber-700 text-emerald-950 text-xs font-bold rounded-xl shadow-xs transition-colors cursor-pointer"
                   >
                     <BellRing className="w-3.5 h-3.5 stroke-[2.5]" />

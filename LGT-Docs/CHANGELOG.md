@@ -6,6 +6,25 @@ Format oparty jest o zasady [Keep a Changelog](https://keepachangelog.com/pl/1.0
 
 ---
 
+## [v2026.20260922.2230] — 2026-09-22
+
+### Dodano (Added)
+- **Modal Pop-up z prośbą o włączenie powiadomień Push (`PushNotificationPromptModal`):**
+  - Eleganckie okno pop-up pytające użytkownika po zalogowaniu o aktywację powiadomień push na urządzeniu.
+  - Stylowa estetyka klubu tenisowego (głęboki szmaragd, limonka i złoto) z animowanym dzwonkiem oraz wyróżnieniem 4 kluczowych korzyści:
+    - 🎾 **Zaplanowane mecze:** Natychmiastowa informacja, gdy rywal zaproponuje termin lub zmieni godzinę gry.
+    - 🏆 **Wyniki i ranking:** Błyskawiczny komunikat o wpisanych wynikach i zmianach w tabeli ligi.
+    - ⏰ **Przypomnienia 2h po meczu:** Powiadomienie ułatwiające terminowe uzupełnienie wyniku.
+    - 🔊 **Dźwięk uderzenia piłki:** Autentyczny odgłos czystego forehandu tenisowego.
+  - **Przycisk odsłuchania dźwięku:** Użytkownik może przetestować autentyczny dźwięk uderzenia piłki bezpośrednio w modalu przed włączeniem powiadomień.
+  - **Inteligentne odkładanie (Snooze):** Opcja *„Może później”* odracza ponowne wyświetlenie monitu o 7 dni (`localStorage`), nie narzucając się użytkownikowi.
+  - **Kolejkowanie z weryfikacją meczów:** Modal powiadomień push nie nakłada się na prompt zaległego meczu i pojawia się z łagodnym 1.8-sekundowym opóźnieniem po załadowaniu kokpitu.
+  - Zintegrowano bezpośrednie wywołanie modalu z szufladą powiadomień (`NotificationDrawer`).
+- **Rozszerzenie testów automatycznych:**
+  - Dodano asercje testujące mechanizm odkładania (snooze) i resetowania statusu modalu pop-up (`44 PASSED, 0 FAILED`).
+
+---
+
 ## [v2026.20260922.2205] — 2026-09-22
 
 ### Dodano (Added)

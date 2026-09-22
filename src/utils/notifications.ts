@@ -4,6 +4,7 @@ import { formatDatePl } from './tennisRules';
 
 const SETTINGS_STORAGE_KEY = 'lgt_notification_settings_v1';
 const SEEN_NOTIFS_STORAGE_KEY = 'lgt_seen_notification_ids_v1';
+const PUSH_PROMPT_DISMISSED_KEY = 'lgt_push_prompt_dismissed_until_v1';
 
 export const DEFAULT_NOTIFICATION_SETTINGS: NotificationSettings = {
   notifyScheduled: true,
@@ -12,6 +13,45 @@ export const DEFAULT_NOTIFICATION_SETTINGS: NotificationSettings = {
   soundEnabled: true,
   selectedPlayerId: null,
 };
+
+/**
+ * Checks if the user previously dismissed the push prompt modal and the snooze period is still active.
+ */
+export function hasUserDismissedPushPrompt(): boolean {
+  try {
+    if (typeof localStorage === 'undefined') return false;
+    const raw = localStorage.getItem(PUSH_PROMPT_DISMISSED_KEY);
+    if (!raw) return false;
+    const until = parseInt(raw, 10);
+    if (isNaN(until)) return false;
+    return Date.now() < until;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Snoozes the push notification prompt modal for a specified number of days (default 7 days).
+ */
+export function dismissPushPrompt(days: number = 7): void {
+  try {
+    if (typeof localStorage === 'undefined') return;
+    const until = Date.now() + days * 24 * 60 * 60 * 1000;
+    localStorage.setItem(PUSH_PROMPT_DISMISSED_KEY, until.toString());
+  } catch (err) {
+    console.warn('[Notifications] Could not save push prompt dismissal:', err);
+  }
+}
+
+/**
+ * Resets push prompt dismissal status so it can be presented again.
+ */
+export function resetPushPromptDismissal(): void {
+  try {
+    if (typeof localStorage === 'undefined') return;
+    localStorage.removeItem(PUSH_PROMPT_DISMISSED_KEY);
+  } catch {}
+}
 
 /**
  * Checks if the current environment supports Web Notifications or ServiceWorker notifications.

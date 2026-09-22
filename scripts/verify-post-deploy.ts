@@ -12,7 +12,12 @@ import {
 } from '../src/utils/tennisRules';
 import { Player, Match, LeagueSettings } from '../src/types';
 import { changeUserPassword } from '../src/utils/auth';
-import { buildMatchOverdueReminderNotification } from '../src/utils/notifications';
+import {
+  buildMatchOverdueReminderNotification,
+  hasUserDismissedPushPrompt,
+  dismissPushPrompt,
+  resetPushPromptDismissal,
+} from '../src/utils/notifications';
 import fs from 'fs';
 import path from 'path';
 
@@ -331,6 +336,14 @@ async function runPostDeployVerification() {
   assert(reminderNotif.type === 'match_overdue_reminder', 'Typ powiadomienia to match_overdue_reminder');
   assert(reminderNotif.recipientPlayerIds.includes('p1') && reminderNotif.recipientPlayerIds.includes('p2'), 'Powiadomienie adresowane do obu uczestników');
   assert(reminderNotif.matchId === 'm_overdue_test', 'Powiadomienie skojarzone z poprawnym ID meczu');
+
+  // Test mechanizmu odkładania modalu pop-up powiadomień push
+  resetPushPromptDismissal();
+  assert(!hasUserDismissedPushPrompt(), 'Domyślnie modal pop-up powiadomień push nie jest odłożony');
+  dismissPushPrompt(7);
+  assert(hasUserDismissedPushPrompt(), 'Po odrzuceniu (Może później) modal pop-up jest uśpiony przez 7 dni');
+  resetPushPromptDismissal();
+  assert(!hasUserDismissedPushPrompt(), 'Zresetowanie statusu przywraca możliwość wyświetlenia modalu pop-up');
 
   // -------------------------------------------------------------
   // 8. WERYFIKACJA SIECIOWA / HEALTH CHECK & SSL

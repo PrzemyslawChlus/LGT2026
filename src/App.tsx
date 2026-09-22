@@ -31,6 +31,7 @@ import {
 import {
   getNotificationPermission,
   requestNotificationPermission,
+  isPushSupported,
   triggerSystemNotification,
   playNotificationChime,
   loadNotificationSettings,
@@ -40,6 +41,8 @@ import {
   buildMatchScheduledNotification,
   buildMatchCompletedNotification,
   buildMatchOverdueReminderNotification,
+  hasUserDismissedPushPrompt,
+  dismissPushPrompt,
 } from './utils/notifications';
 import { Header } from './components/Header';
 import { StandingsTable } from './components/StandingsTable';
@@ -60,6 +63,7 @@ import { OpponentSuggester } from './components/OpponentSuggester';
 import { NotificationToast } from './components/NotificationToast';
 import { NotificationDrawer } from './components/NotificationDrawer';
 import { OverdueMatchPromptModal } from './components/OverdueMatchPromptModal';
+import { PushNotificationPromptModal } from './components/PushNotificationPromptModal';
 
 interface BeforeInstallPromptEvent extends Event {
   readonly platforms: string[];
@@ -194,6 +198,7 @@ export default function App() {
   const [notificationPermission, setNotificationPermission] = useState<
     'granted' | 'denied' | 'default' | 'unsupported'
   >(() => getNotificationPermission());
+  const [isPushPromptOpen, setIsPushPromptOpen] = useState(false);
 
   // Overdue match prompt state (prompt participants on login if match date/time has passed)
   const [overdueMatchToPrompt, setOverdueMatchToPrompt] = useState<Match | null>(null);
@@ -339,6 +344,23 @@ export default function App() {
     return () => clearInterval(intervalId);
   }, [matches, notifications, players]);
 
+  // Proactively prompt logged-in users to enable push notifications if not yet decided
+  useEffect(() => {
+    if (!currentUser) return;
+    if (isPushPromptOpen) return;
+    if (overdueMatchToPrompt) return; // Prioritize overdue match prompt if present
+    if (!isPushSupported()) return;
+    if (notificationPermission !== 'default') return;
+    if (hasUserDismissedPushPrompt()) return;
+
+    // Small delay (1.8s) so the initial dashboard loads smoothly
+    const timer = setTimeout(() => {
+      setIsPushPromptOpen(true);
+    }, 1800);
+
+    return () => clearTimeout(timer);
+  }, [currentUser, notificationPermission, overdueMatchToPrompt, isPushPromptOpen]);
+
   const handleUpdateNotificationSettings = (newSettings: NotificationSettings) => {
     setNotificationSettings(newSettings);
     saveNotificationSettings(newSettings);
@@ -350,6 +372,27 @@ export default function App() {
     if (perm === 'granted') {
       handleSendTestNotification();
     }
+  };
+
+  const handleEnablePushFromPrompt = async () => {
+    const perm = await requestNotificationPermission();
+    setNotificationPermission(perm);
+    setIsPushPromptOpen(false);
+    if (perm === 'granted') {
+      const updated: NotificationSettings = {
+        ...notificationSettings,
+        enabled: true,
+      };
+      handleUpdateNotificationSettings(updated);
+      handleSendTestNotification();
+    } else if (perm === 'denied') {
+      dismissPushPrompt(30);
+    }
+  };
+
+  const handleDismissPushPrompt = () => {
+    dismissPushPrompt(7);
+    setIsPushPromptOpen(false);
   };
 
   const handleSendTestNotification = async () => {
@@ -1117,6 +1160,13 @@ export default function App() {
         />
       )}
 
+      {/* Push Notification Opt-in Prompt Pop-up Modal */}
+      <PushNotificationPromptModal
+        isOpen={isPushPromptOpen}
+        onEnable={handleEnablePushFromPrompt}
+        onDismiss={handleDismissPushPrompt}
+      />
+
       {/* In-App Floating Toast Notification */}
       <NotificationToast
         notification={toastNotification}
@@ -1152,6 +1202,7 @@ export default function App() {
           const updated = { ...notificationSettings, selectedPlayerId: id };
           handleUpdateNotificationSettings(updated);
         }}
+        onOpenPushPromptModal={() => setIsPushPromptOpen(true)}
       />
     </div>
   );

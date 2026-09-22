@@ -3,8 +3,8 @@
 **Plik skryptu:** `scripts/verify-post-deploy.ts`  
 **Polecenie:** `npm run test:deploy`  
 **Czas wykonania:** ~2-3 sekundy  
-**Status bieżący:** 41 PASSED, 0 FAILED, 0 SKIPPED  
-**Wersja:** `v2026.20260922.2205`  
+**Status bieżący:** 44 PASSED, 0 FAILED, 0 SKIPPED  
+**Wersja:** `v2026.20260922.2230`  
 **Changelog:** Pełny wykaz zmian w [`CHANGELOG.md`](./CHANGELOG.md)
 
 ---
