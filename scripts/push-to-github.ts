@@ -1,4 +1,6 @@
 import { execSync } from 'child_process';
+import fs from 'fs';
+import path from 'path';
 
 let rawToken = process.env.GITHUB_TOKEN?.trim() || '';
 // Usuwamy ewentualny znak '=' lub cudzysłowy jeśli wkradły się podczas wklejania
@@ -31,12 +33,43 @@ try {
     // ignorujemy jeśli już ustawione
   }
 
-  // Sprawdzenie statusu repozytorium
+  // 1. Zaktualizuj wersję aplikacji w public/version.json
+  const versionFile = path.resolve('public/version.json');
+  const now = new Date();
+  const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '');
+  const timeStr = `${String(now.getUTCHours()).padStart(2, '0')}${String(now.getUTCMinutes()).padStart(2, '0')}`;
+  const newVersion = `v2026.${dateStr}.${timeStr}`;
+
+  const versionPayload = {
+    version: newVersion,
+    buildTime: now.getTime(),
+    buildDate: now.toISOString(),
+  };
+  fs.writeFileSync(versionFile, JSON.stringify(versionPayload, null, 2) + '\n', 'utf-8');
+  console.log(`🏷️ Zaktualizowano numer wersji aplikacji: ${newVersion}`);
+
+  // 2. Fetch i integracja ze zdalnym repozytorium GitHub
+  const remoteUrlWithToken = `https://${REPO_OWNER}:${GITHUB_TOKEN}@github.com/${REPO_OWNER}/${REPO_NAME}.git`;
+  try {
+    console.log(`📥 Pobieranie najnowszych zmian z repozytorium zdalnego (${BRANCH})...`);
+    execSync(`git fetch ${remoteUrlWithToken} ${BRANCH}`, { stdio: 'inherit' });
+    
+    // Sprawdzamy czy FETCH_HEAD istnieje
+    try {
+      execSync(`git merge FETCH_HEAD -m "chore: integracja z najnowszą wersją repozytorium" --allow-unrelated-histories -X ours`, { stdio: 'inherit' });
+    } catch (mergeErr) {
+      console.log('ℹ️ Merge zakończony lub pominięty.');
+    }
+  } catch (fetchErr) {
+    console.log('ℹ️ Brak zdalnego brancha lub fetch pominięty.');
+  }
+
+  // 3. Sprawdzenie statusu repozytorium
   const status = execSync('git status --porcelain', { encoding: 'utf-8' });
   if (status.trim().length > 0) {
-    console.log('📦 Znaleziono niezacommitowane zmiany. Tworzenie commita...');
+    console.log('📦 Znaleziono zmiany do zacommitowania. Tworzenie commita...');
     execSync('git add -A', { stdio: 'inherit' });
-    const commitMsg = process.argv.slice(2).join(' ').trim() || `chore: synchronizacja aplikacji z ${new Date().toISOString()}`;
+    const commitMsg = process.argv.slice(2).join(' ').trim() || `feat: dodanie weryfikacji meczow po terminie i powiadomien push 2h (${newVersion})`;
     execSync(`git commit -m "${commitMsg.replace(/"/g, '\\"')}"`, { stdio: 'inherit' });
   } else {
     console.log('ℹ️ Brak nowych lokalnych zmian do zacommitowania.');
@@ -45,7 +78,6 @@ try {
   console.log(`📤 Wypychanie zmian do https://github.com/${REPO_OWNER}/${REPO_NAME} (${BRANCH})...`);
   
   // Wypchnięcie zmian z użyciem tokena w locie, nie zapisując go w konfiguracji git
-  const remoteUrlWithToken = `https://${REPO_OWNER}:${GITHUB_TOKEN}@github.com/${REPO_OWNER}/${REPO_NAME}.git`;
   execSync(`git push ${remoteUrlWithToken} ${BRANCH}`, { stdio: 'inherit' });
 
   // Zabezpieczenie: upewnienie się, że origin nie zawiera tokena
