@@ -221,12 +221,30 @@ export async function triggerSystemNotification(
     // Ignore vibrate errors
   }
 
+  const appOrigin = typeof window !== 'undefined' ? window.location.origin : 'https://lgt2026.pl';
+  let targetUrl = options.url || '/';
+  if (targetUrl.startsWith('#')) {
+    targetUrl = `${appOrigin}/${targetUrl}`;
+  } else if (targetUrl.startsWith('/')) {
+    targetUrl = `${appOrigin}${targetUrl}`;
+  } else if (!targetUrl.startsWith('http')) {
+    targetUrl = `${appOrigin}/${targetUrl}`;
+  }
+
+  // Safety: never point to sw.js
+  if (targetUrl.includes('sw.js')) {
+    targetUrl = `${appOrigin}/`;
+  }
+
   const notificationOptions = {
     body: options.body,
     icon: options.icon || '/icon.svg',
     badge: options.badge || '/icon.svg',
     tag: options.tag || `lgt-${Date.now()}`,
-    data: options.url || '/',
+    data: {
+      url: targetUrl,
+      ...(typeof options.data === 'object' ? options.data : {}),
+    },
   };
 
   // 1. Try displaying via Service Worker registration (Mandatory for Android Chrome & iOS PWA)
@@ -246,8 +264,8 @@ export async function triggerSystemNotification(
       const n = new Notification(title, notificationOptions);
       n.onclick = () => {
         window.focus();
-        if (options.url) {
-          window.location.hash = options.url.replace(/^\/?#?/, '#');
+        if (targetUrl) {
+          window.location.href = targetUrl;
         }
       };
       return true;

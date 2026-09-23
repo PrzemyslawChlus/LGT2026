@@ -25,6 +25,14 @@ if (!GITHUB_TOKEN) {
 try {
   console.log('🚀 Przygotowywanie synchronizacji z GitHub...');
 
+  // Upewnienie się, że repozytorium git jest zainicjalizowane
+  if (!fs.existsSync('.git')) {
+    try {
+      execSync('git init -b main', { stdio: 'pipe' });
+      execSync(`git remote add origin https://github.com/${REPO_OWNER}/${REPO_NAME}.git`, { stdio: 'pipe' });
+    } catch {}
+  }
+
   // Ustawienie tożsamości autora commita (jeśli nie jest ustawiona)
   try {
     execSync('git config user.name "Przemysław Chlus"', { stdio: 'pipe' });

@@ -19,7 +19,7 @@ export const LGT_DOCS: DocFile[] = [
     title: 'Dziennik Zmian (Changelog)',
     filename: 'CHANGELOG.md',
     description: 'Chronologiczny rejestr wydań, nowych funkcji, poprawek i ulepszeń systemu LGT 2026.',
-    badge: 'v2026.20260922.2230',
+    badge: 'v2026.20260923.2320',
     content: docsChangelog,
   },
   {
@@ -42,8 +42,8 @@ export const LGT_DOCS: DocFile[] = [
     id: 'tests-guide',
     title: 'Przewodnik po Testach Post-Deploy',
     filename: 'TESTY_AUTOMATYCZNE_PO_DEPLOYU.md',
-    description: 'Zestaw 44 testów automatycznych, weryfikacja SSL domeny lgt2026.pl, algorytmów i powiadomień.',
-    badge: '44 Testy (PASS)',
+    description: 'Zestaw 48 testów automatycznych, weryfikacja SSL domeny lgt2026.pl, algorytmów i powiadomień.',
+    badge: '48 Testów (PASS)',
     content: docsTests,
   },
   {

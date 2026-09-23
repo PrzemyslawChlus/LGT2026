@@ -8,7 +8,22 @@ Szczegółowa dokumentacja techniczna znajduje się w katalogu [`/LGT-Docs`](./L
 
 ---
 
-## [v2026.20260922.2230] — 2026-09-22
+## [v2026.20260923.2320] — 2026-09-23
+
+### Naprawiono (Fixed)
+- **Krytyczna poprawka kliknięcia w powiadomienie push na iOS (Safari / WebClip PWA):**
+  - **Diagnoza problemu:** Gdy aplikacja była wyłączona na iOS, kliknięcie w powiadomienie powodowało wywołanie `self.clients.openWindow(targetUrl)`. Ponieważ URL w Service Workerze był względny (np. `#matches`), silnik WebKit na iOS rozwiązywał go względem bazowego skryptu Workera (`https://lgt2026.pl/sw.js`), co powodowało otwarcie `https://lgt2026.pl/sw.js#matches` i wyświetlenie na ekranie telefonu czystego kodu źródłowego JavaScript pliku `sw.js` zamiast widoku aplikacji.
+  - **Rozwiązanie w Service Workerze (`public/sw.js`):**
+    - Wprowadzono funkcję `getSafeDestinationUrl()`, która rygorystycznie mapuje każdy docelowy adres (hash, ścieżkę względną lub pełny URL) na bezwzględny adres aplikacji (`https://lgt2026.pl/` lub `https://lgt2026.pl/#matches`).
+    - Wprowadzono sztywną blokadę (`finalUrl.includes('/sw.js')`), uniemożliwiającą jakiekolwiek przekierowanie okna do pliku Workera.
+    - Dodano w sekcji `fetch` ochronę nawigacyjną (`request.mode === 'navigate'`), która natychmiast przekierowuje zapytania przeglądarki do `/sw.js` na stronę główną (`/`) kodem HTTP 302, uniemożliwiając wyświetlenie surowego kodu skryptu.
+  - **Rozwiązanie po stronie aplikacji (`src/utils/notifications.ts`):**
+    - Zabezpieczono `triggerSystemNotification`, generując bezwzględny URL (`window.location.origin`) już na etapie rejestracji powiadomienia w kolejce przeglądarki.
+  - **Zwiększenie wersji pamięci podręcznej SW:** Zaktualizowano `CACHE_VERSION` do `'lgt-v2026-clean-v7'` w celu natychmiastowej wymiany Service Workera na urządzeniach użytkowników.
+- **Rozszerzenie testów automatycznych:**
+  - Dodano testy walidujące funkcję `getSafeDestinationUrl` oraz blokadę nawigacji do `sw.js` w suicie post-deploy (**48 PASSED, 0 FAILED**).
+
+---
 
 ### Dodano (Added)
 - **Modal Pop-up z prośbą o włączenie powiadomień Push (`PushNotificationPromptModal`):**

@@ -3,7 +3,7 @@
 // Cache-First for production hashed /assets/* and static branding assets.
 // Explicitly ignores all development modules, Vite client, and external APIs.
 
-const CACHE_VERSION = 'lgt-v2026-clean-v6';
+const CACHE_VERSION = 'lgt-v2026-clean-v7';
 const STATIC_ASSETS = [
   '/logo.svg',
   '/icon.svg',
@@ -55,16 +55,63 @@ self.addEventListener('message', (event) => {
   }
   if (event.data?.type === 'SHOW_NOTIFICATION') {
     const { title, options } = event.data;
+    const safeUrl = getSafeDestinationUrl(options?.data || options?.url);
     event.waitUntil(
       self.registration.showNotification(title || 'Liga Gentlemanów Tenisa', {
         icon: '/icon.svg',
         badge: '/icon.svg',
         vibrate: [100, 50, 100],
         ...options,
+        data: {
+          ...(typeof options?.data === 'object' ? options.data : {}),
+          url: safeUrl,
+        },
       })
     );
   }
 });
+
+// Helper to resolve an absolute, safe application URL.
+// WebKit / iOS Safari requires an absolute URL for clients.openWindow()
+// Otherwise relative URLs resolve against self.location.href (https://domain/sw.js)
+// causing iOS to open and display the raw sw.js script file!
+function getSafeDestinationUrl(data) {
+  const origin = self.location.origin || 'https://lgt2026.pl';
+  const defaultUrl = `${origin}/`;
+
+  let raw = '';
+  if (typeof data === 'string') {
+    raw = data;
+  } else if (data && typeof data === 'object') {
+    raw = data.url || data.link || '';
+  }
+
+  if (!raw || raw === '/') {
+    return defaultUrl;
+  }
+
+  let finalUrl = defaultUrl;
+  try {
+    if (raw.startsWith('http://') || raw.startsWith('https://')) {
+      finalUrl = raw;
+    } else if (raw.startsWith('#')) {
+      finalUrl = `${origin}/${raw}`;
+    } else if (raw.startsWith('/')) {
+      finalUrl = `${origin}${raw}`;
+    } else {
+      finalUrl = `${origin}/${raw}`;
+    }
+  } catch {
+    finalUrl = defaultUrl;
+  }
+
+  // Critical safeguard: Never, under any circumstances, allow opening sw.js
+  if (finalUrl.includes('/sw.js')) {
+    finalUrl = defaultUrl;
+  }
+
+  return finalUrl;
+}
 
 // Push notification event listener (for Web Push / FCM / background alerts)
 self.addEventListener('push', (event) => {
@@ -78,13 +125,15 @@ self.addEventListener('push', (event) => {
   }
 
   const title = data.title || 'Liga Gentlemanów Tenisa';
+  const targetUrl = getSafeDestinationUrl(data.url || data);
+
   const options = {
     body: data.body || 'Nowe powiadomienie ligowe',
     icon: data.icon || '/icon.svg',
     badge: '/icon.svg',
     tag: data.tag || `lgt-notif-${Date.now()}`,
     data: {
-      url: data.url || '/',
+      url: targetUrl,
       matchId: data.matchId,
     },
     vibrate: [100, 50, 100],
@@ -97,18 +146,22 @@ self.addEventListener('push', (event) => {
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   const notifData = event.notification.data || {};
-  const targetUrl = (typeof notifData === 'string' ? notifData : notifData.url) || '/';
+  const targetUrl = getSafeDestinationUrl(notifData);
 
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+      // 1. If an app window or standalone PWA instance is already open, focus it
       for (const client of clientList) {
         if ('focus' in client) {
-          if (client.url && client.navigate && targetUrl && targetUrl !== '/') {
-            client.navigate(targetUrl);
+          if (client.navigate && targetUrl && targetUrl !== self.location.origin + '/') {
+            client.navigate(targetUrl).catch(() => {});
           }
           return client.focus();
         }
       }
+
+      // 2. If app is closed (empty clientList on iOS PWA):
+      // Open the absolute application URL.
       if (self.clients.openWindow) {
         return self.clients.openWindow(targetUrl);
       }
@@ -123,6 +176,12 @@ self.addEventListener('fetch', (event) => {
   if (request.method !== 'GET') return;
 
   const url = new URL(request.url);
+
+  // Safeguard: Never let a browser window/document navigate directly to sw.js as a page
+  if (request.mode === 'navigate' && (url.pathname === '/sw.js' || url.pathname.endsWith('/sw.js'))) {
+    event.respondWith(Response.redirect('/', 302));
+    return;
+  }
 
   // 1. Strict bypass for:
   // - version.json and sw.js

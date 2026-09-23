@@ -345,6 +345,14 @@ async function runPostDeployVerification() {
   resetPushPromptDismissal();
   assert(!hasUserDismissedPushPrompt(), 'Zresetowanie statusu przywraca możliwość wyświetlenia modalu pop-up');
 
+  // Weryfikacja bezpieczeństwa Service Workera i obsługi powiadomień na iOS
+  const swPath = path.join(process.cwd(), 'public', 'sw.js');
+  assert(fs.existsSync(swPath), 'Plik public/sw.js istnieje');
+  const swContent = fs.readFileSync(swPath, 'utf-8');
+  assert(swContent.includes('getSafeDestinationUrl'), 'SW posiada funkcję getSafeDestinationUrl rozwiązującą URL bezwzględny');
+  assert(swContent.includes("request.mode === 'navigate'"), 'SW blokuje nawigację przeglądarki bezpośrednio do pliku sw.js');
+  assert(swContent.includes("finalUrl.includes('/sw.js')"), 'SW zabezpiecza przed otwarciem pliku sw.js po kliknięciu w powiadomienie na iOS');
+
   // -------------------------------------------------------------
   // 8. WERYFIKACJA SIECIOWA / HEALTH CHECK & SSL
   // -------------------------------------------------------------
