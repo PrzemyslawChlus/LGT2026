@@ -6,6 +6,16 @@ Format oparty jest o zasady [Keep a Changelog](https://keepachangelog.com/pl/1.0
 
 ---
 
+## [v2026.20260923.2340] — 2026-09-23
+
+### Zmieniono (Changed)
+- **Przeprojektowanie modułu proponowania spotkań (`OpponentSuggester`):**
+  - **Domyślnie zwinięty widok:** Moduł propozycji rywala na kort jest teraz domyślnie zwinięty dla wszystkich graczy.
+  - **Kompaktowa karta proponowanego rywala w wersji zwiniętej:** Widoczna jest czytelna, niska karta z nazwiskiem rywala, awatarem, pozycją i punktami w tabeli oraz szybkimi przyciskami kontaktu/umawiania terminu (Zaproponuj termin, WhatsApp, SMS, Telefon, Kolejny rywal).
+  - **Odchudzenie widoku zwiniętego:** Ukryto preferencje nawierzchni kortów, historię bezpośrednich spotkań / status nowości oraz baner tempa ligi – wszystkie te szczegóły są w pełni dostępne po rozwinięciu modułu.
+
+---
+
 ## [v2026.20260923.2320] — 2026-09-23
 
 ### Naprawiono (Fixed)

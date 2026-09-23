@@ -57,8 +57,15 @@ export const OpponentSuggester: React.FC<OpponentSuggesterProps> = ({
   // Toggle to view all unplayed opponents in an expanded tray
   const [showAllUnplayed, setShowAllUnplayed] = useState(false);
 
-  // Minimize / collapse toggle (default open so it catches the eye)
-  const [isCollapsed, setIsCollapsed] = useState(false);
+  // Domyślnie komponent jest zwinięty dla każdego użytkownika (kompaktowy widok z proponowanym rywalem)
+  const [isCollapsed, setIsCollapsed] = useState(true);
+
+  // Czyszczenie ewentualnego starego klucza z localStorage
+  useEffect(() => {
+    try {
+      localStorage.removeItem('tennis_suggester_collapsed');
+    } catch {}
+  }, []);
 
   // WhatsApp vs SMS popup/action selector
   const [contactOpponent, setContactOpponent] = useState<OpponentSuggestion | null>(null);
@@ -211,12 +218,12 @@ export const OpponentSuggester: React.FC<OpponentSuggesterProps> = ({
             type="button"
             onClick={() => setIsCollapsed((prev) => !prev)}
             className="p-1.5 sm:px-2.5 sm:py-1.5 rounded-xl bg-emerald-900/60 hover:bg-emerald-800/80 border border-emerald-700/60 text-stone-300 hover:text-white text-xs font-semibold flex items-center gap-1 cursor-pointer transition-colors"
-            title={isCollapsed ? 'Rozwiń rekomendację' : 'Zwiń rekomendację'}
+            title={isCollapsed ? 'Rozwiń propozycję rywala' : 'Zwiń do podsumowania'}
           >
             {isCollapsed ? (
               <>
-                <span className="hidden sm:inline">Pokaż</span>
-                <ChevronDown className="w-4 h-4" />
+                <span className="hidden sm:inline">Rozwiń</span>
+                <ChevronDown className="w-4 h-4 text-lime-400" />
               </>
             ) : (
               <>
@@ -228,136 +235,266 @@ export const OpponentSuggester: React.FC<OpponentSuggesterProps> = ({
         </div>
       </div>
 
-      {/* Main Content (when not collapsed) */}
-      {!isCollapsed && (
-        <div className="relative z-10 p-4 sm:p-6 space-y-4">
-          {/* Dynamic League Pacing & Mobilization / Praise Banner */}
-          {stats?.pace && (
-            <div
-              id="suggester-pace-banner"
-              className={`rounded-2xl p-3.5 sm:p-4 border transition-all shadow-md relative overflow-hidden ${
-                stats.pace.status === 'behind'
-                  ? 'bg-gradient-to-r from-amber-950/90 via-orange-950/75 to-stone-900/90 border-amber-400/60 text-amber-100'
-                  : stats.pace.status === 'ahead'
-                  ? 'bg-gradient-to-r from-emerald-950/90 via-emerald-900/80 to-stone-900/90 border-lime-400/60 text-emerald-100'
-                  : 'bg-stone-950/60 border-emerald-800/60 text-stone-200'
-              }`}
-            >
-              <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 relative z-10">
-                <div className="flex items-start gap-3 min-w-0">
-                  <div
-                    className={`w-9 h-9 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center shrink-0 shadow-sm ${
-                      stats.pace.status === 'behind'
-                        ? 'bg-amber-400 text-stone-950 ring-2 ring-amber-300/60'
-                        : stats.pace.status === 'ahead'
-                        ? 'bg-lime-400 text-emerald-950 ring-2 ring-lime-300/60'
-                        : 'bg-emerald-800/80 text-lime-300 ring-1 ring-emerald-700'
-                    }`}
-                  >
-                    {stats.pace.status === 'behind' ? (
-                      <TrendingDown className="w-5 h-5 stroke-[2.5]" />
-                    ) : stats.pace.status === 'ahead' ? (
-                      <Award className="w-5 h-5 stroke-[2.5]" />
-                    ) : (
-                      <Scale className="w-5 h-5" />
-                    )}
-                  </div>
-
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span
-                        className={`text-[10px] sm:text-xs font-black uppercase tracking-wider px-2 py-0.5 rounded-full ${
-                          stats.pace.status === 'behind'
-                            ? 'bg-amber-400/25 text-amber-300 border border-amber-400/40'
-                            : stats.pace.status === 'ahead'
-                            ? 'bg-lime-400/25 text-lime-300 border border-lime-400/40'
-                            : 'bg-emerald-900/40 text-stone-300 border border-emerald-700/50'
-                        }`}
-                      >
-                        {stats.pace.status === 'behind'
-                          ? 'Mobilizacja Ligowa'
-                          : stats.pace.status === 'ahead'
-                          ? 'Wzorowe Tempo'
-                          : 'Równe Tempo'}
-                      </span>
-                      <h3 className="font-extrabold text-xs sm:text-sm text-stone-100 font-display">
-                        {stats.pace.title}
-                      </h3>
-                    </div>
-                    <p className="text-xs text-stone-300 leading-relaxed mt-0.5">
-                      {stats.pace.message}
-                    </p>
-                  </div>
-                </div>
-
-                {/* Pacing Visual Pill (Monthly League Average) */}
-                <div className="flex items-center gap-3 self-start md:self-auto shrink-0 bg-stone-950/80 border border-stone-700/80 rounded-xl px-3 py-2 text-xs">
-                  <div className="text-right">
-                    <div className="text-[10px] uppercase font-bold text-stone-400 tracking-wider">
-                      {activeTargetPlayer.id === currentUserPlayer?.id
-                        ? 'Twoje tempo'
-                        : activeTargetPlayer.name.split(' ')[0]}
-                    </div>
+      {/* Content Area */}
+      <div className="relative z-10 p-4 sm:p-5">
+        {/* COLLAPSED MODE: Very compact proposed opponent view (no court preferences, no match history / unplayed badges) */}
+        {isCollapsed ? (
+          currentSuggestion ? (
+            <div className="space-y-2.5">
+              <div
+                id="suggester-collapsed-card"
+                className="bg-stone-950/70 border border-emerald-700/60 hover:border-lime-400/40 rounded-2xl p-3 sm:p-4 transition-all shadow-md"
+              >
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                  {/* Left: Opponent Avatar, Name & Table rank (without unplayed badges or court preferences) */}
+                  <div className="flex items-center gap-3 min-w-0 flex-1">
+                    {/* Clean Avatar (no unplayed star) */}
                     <div
-                      className={`text-base font-black font-mono leading-none ${
-                        stats.pace.status === 'behind'
-                          ? 'text-amber-400'
-                          : stats.pace.status === 'ahead'
-                          ? 'text-lime-400'
-                          : 'text-stone-200'
-                      }`}
+                      onClick={() => onSelectPlayer(currentSuggestion.opponent)}
+                      className={`w-11 h-11 sm:w-12 sm:h-12 rounded-xl shrink-0 cursor-pointer ${currentSuggestion.opponent.avatarColor} text-white font-black flex items-center justify-center text-lg shadow-sm ring-2 ring-amber-400/70 hover:scale-105 transition-transform`}
+                      title="Zobacz pełny profil gracza"
                     >
-                      {stats.pace.playerMatchesPerMonth.toFixed(1)}{' '}
-                      <span className="text-[11px] font-normal text-stone-400">m./mies.</span>
+                      {currentSuggestion.opponent.name.charAt(0)}
                     </div>
-                    <div className="text-[10px] text-stone-400 font-mono mt-0.5">
-                      łącznie: {stats.pace.playerMatches} m.
+
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <button
+                          type="button"
+                          onClick={() => onSelectPlayer(currentSuggestion.opponent)}
+                          className="font-black text-stone-100 text-sm sm:text-base hover:text-amber-300 transition-colors text-left truncate cursor-pointer font-display"
+                        >
+                          {currentSuggestion.opponent.name}
+                        </button>
+
+                        {currentSuggestion.opponent.nickname && (
+                          <span className="text-xs text-amber-300/90 italic truncate">
+                            „{currentSuggestion.opponent.nickname}”
+                          </span>
+                        )}
+
+                        <span className="inline-flex items-center gap-1 font-semibold text-[11px] text-amber-300 bg-amber-400/10 px-2 py-0.5 rounded-md border border-amber-400/20">
+                          <Trophy className="w-3 h-3 text-amber-400" />
+                          #{currentSuggestion.opponentRank} ({currentSuggestion.opponentPoints} pkt)
+                        </span>
+                      </div>
+
+                      {/* Brief motivational headline in 1 line */}
+                      <p className="text-xs text-stone-300 truncate mt-0.5 flex items-center gap-1.5">
+                        <Sparkles className="w-3.5 h-3.5 text-lime-400 shrink-0" />
+                        <span className="text-lime-300 font-semibold">{currentSuggestion.headline}</span>
+                        <span className="text-stone-400 hidden sm:inline truncate">— {currentSuggestion.reasonText}</span>
+                      </p>
                     </div>
                   </div>
 
-                  <div className="h-8 w-px bg-stone-700" />
+                  {/* Right: Quick action buttons */}
+                  <div className="flex items-center gap-1.5 shrink-0 flex-wrap sm:flex-nowrap pt-2 md:pt-0 border-t md:border-t-0 border-stone-800">
+                    {/* Primary CTA: Schedule */}
+                    <button
+                      id="suggester-collapsed-btn-challenge"
+                      type="button"
+                      onClick={() => handleChallengeOpponent(currentSuggestion.opponent.id, true)}
+                      className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-gradient-to-r from-lime-400 to-lime-500 hover:from-lime-300 hover:to-lime-400 text-emerald-950 font-black text-xs shadow-xs active:scale-95 transition-all cursor-pointer"
+                      title="Zaproponuj termin spotkania"
+                    >
+                      <Calendar className="w-3.5 h-3.5 stroke-[2.5]" />
+                      <span>Zaproponuj termin</span>
+                    </button>
 
-                  <div>
-                    <div className="text-[10px] uppercase font-bold text-stone-400 tracking-wider">
-                      Śr. miesięczna ligi
-                    </div>
-                    <div className="text-base font-black font-mono text-stone-200 leading-none">
-                      ~{stats.pace.avgLeagueMatchesMonthly.toFixed(1)}{' '}
-                      <span className="text-[11px] font-normal text-stone-400">m./mies.</span>
-                    </div>
-                    <div className="text-[10px] text-stone-400 font-mono mt-0.5">
-                      czas: {stats.pace.elapsedMonths <= 1 ? '1 mc' : `${stats.pace.elapsedMonths.toFixed(1)} mc.`}
-                    </div>
+                    {/* WhatsApp */}
+                    <button
+                      type="button"
+                      onClick={() => handleSendWhatsApp(currentSuggestion)}
+                      className="p-2 rounded-xl bg-emerald-800/80 hover:bg-emerald-700 text-lime-300 hover:text-white border border-emerald-600/70 transition-colors cursor-pointer"
+                      title="Napisz na WhatsApp"
+                    >
+                      <MessageSquare className="w-4 h-4" />
+                    </button>
+
+                    {/* SMS */}
+                    <button
+                      type="button"
+                      onClick={() => handleSendSms(currentSuggestion)}
+                      className="px-2.5 py-2 rounded-xl bg-stone-800 hover:bg-stone-700 border border-stone-700 text-stone-200 font-bold text-xs transition-colors cursor-pointer"
+                      title="Wyślij SMS"
+                    >
+                      SMS
+                    </button>
+
+                    {/* Phone */}
+                    <a
+                      href={`tel:${currentSuggestion.opponent.phone.replace(/[\s-]/g, '')}`}
+                      className="p-2 rounded-xl bg-stone-800 hover:bg-stone-700 border border-stone-700 text-amber-300 hover:text-amber-200 transition-colors flex items-center justify-center cursor-pointer"
+                      title={`Zadzwoń do ${currentSuggestion.opponent.name}`}
+                    >
+                      <Phone className="w-4 h-4" />
+                    </a>
+
+                    {/* Next Opponent button */}
+                    <button
+                      type="button"
+                      onClick={handleNextSuggestion}
+                      className="inline-flex items-center gap-1 px-2.5 py-2 rounded-xl bg-emerald-900/60 hover:bg-emerald-800/80 border border-emerald-700/60 text-stone-300 hover:text-white text-xs font-semibold cursor-pointer transition-colors"
+                      title={`Kolejna propozycja (${safeIndex + 1}/${suggestions.length})`}
+                    >
+                      <span className="hidden lg:inline">Kolejny</span>
+                      <ArrowRight className="w-3.5 h-3.5 text-lime-400" />
+                    </button>
                   </div>
                 </div>
+              </div>
+
+              {/* Bottom bar in collapsed state: candidate count + expand trigger */}
+              <div className="flex items-center justify-between px-1 text-xs text-stone-400">
+                <span className="text-[11px]">
+                  Propozycja <strong className="text-stone-300">{safeIndex + 1}</strong> z {suggestions.length}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setIsCollapsed(false)}
+                  className="inline-flex items-center gap-1 text-[11px] font-semibold text-lime-400 hover:text-lime-300 cursor-pointer transition-colors"
+                >
+                  <span>Rozwiń tempo ligi i zasady</span>
+                  <ChevronDown className="w-3.5 h-3.5" />
+                </button>
               </div>
             </div>
-          )}
+          ) : (
+            <div className="text-center py-4 text-xs text-stone-400">
+              Brak dostępnych propozycji rywali do wyświetlenia.
+            </div>
+          )
+        ) : (
+          /* EXPANDED MODE: Full detailed view */
+          <div className="space-y-4">
+            {/* Dynamic League Pacing & Mobilization / Praise Banner */}
+            {stats?.pace && (
+              <div
+                id="suggester-pace-banner"
+                className={`rounded-2xl p-3.5 sm:p-4 border transition-all shadow-md relative overflow-hidden ${
+                  stats.pace.status === 'behind'
+                    ? 'bg-gradient-to-r from-amber-950/90 via-orange-950/75 to-stone-900/90 border-amber-400/60 text-amber-100'
+                    : stats.pace.status === 'ahead'
+                    ? 'bg-gradient-to-r from-emerald-950/90 via-emerald-900/80 to-stone-900/90 border-lime-400/60 text-emerald-100'
+                    : 'bg-stone-950/60 border-emerald-800/60 text-stone-200'
+                }`}
+              >
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 relative z-10">
+                  <div className="flex items-start gap-3 min-w-0">
+                    <div
+                      className={`w-9 h-9 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center shrink-0 shadow-sm ${
+                        stats.pace.status === 'behind'
+                          ? 'bg-amber-400 text-stone-950 ring-2 ring-amber-300/60'
+                          : stats.pace.status === 'ahead'
+                          ? 'bg-lime-400 text-emerald-950 ring-2 ring-lime-300/60'
+                          : 'bg-emerald-800/80 text-lime-300 ring-1 ring-emerald-700'
+                      }`}
+                    >
+                      {stats.pace.status === 'behind' ? (
+                        <TrendingDown className="w-5 h-5 stroke-[2.5]" />
+                      ) : stats.pace.status === 'ahead' ? (
+                        <Award className="w-5 h-5 stroke-[2.5]" />
+                      ) : (
+                        <Scale className="w-5 h-5" />
+                      )}
+                    </div>
 
-          {/* Subtitle / Exploration Rate Bar */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs sm:text-sm text-stone-300">
-            <p className="leading-relaxed text-xs">
-              <strong className="text-lime-300">Zasada Dżentelmena:</strong> Gramy z każdym rywalem w lidze!{' '}
-              <span className="text-stone-300">
-                Poniżej rekomendowany przeciwnik dopasowany do Twojego tempa i tabeli.
-              </span>
-            </p>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span
+                          className={`text-[10px] sm:text-xs font-black uppercase tracking-wider px-2 py-0.5 rounded-full ${
+                            stats.pace.status === 'behind'
+                              ? 'bg-amber-400/25 text-amber-300 border border-amber-400/40'
+                              : stats.pace.status === 'ahead'
+                              ? 'bg-lime-400/25 text-lime-300 border border-lime-400/40'
+                              : 'bg-emerald-900/40 text-stone-300 border border-emerald-700/50'
+                          }`}
+                        >
+                          {stats.pace.status === 'behind'
+                            ? 'Mobilizacja Ligowa'
+                            : stats.pace.status === 'ahead'
+                            ? 'Wzorowe Tempo'
+                            : 'Równe Tempo'}
+                        </span>
+                        <h3 className="font-extrabold text-xs sm:text-sm text-stone-100 font-display">
+                          {stats.pace.title}
+                        </h3>
+                      </div>
+                      <p className="text-xs text-stone-300 leading-relaxed mt-0.5">
+                        {stats.pace.message}
+                      </p>
+                    </div>
+                  </div>
 
-            {/* League Exploration Progress Badge */}
-            {stats && (
-              <div className="shrink-0 bg-stone-950/60 border border-stone-700/80 rounded-xl px-3 py-1.5 flex items-center gap-2">
-                <div className="w-16 sm:w-20 bg-stone-800 rounded-full h-2 overflow-hidden">
-                  <div
-                    className="bg-gradient-to-r from-amber-400 to-lime-400 h-full rounded-full transition-all duration-500"
-                    style={{ width: `${stats.explorationRate}%` }}
-                  />
+                  {/* Pacing Visual Pill (Monthly League Average) */}
+                  <div className="flex items-center gap-3 self-start md:self-auto shrink-0 bg-stone-950/80 border border-stone-700/80 rounded-xl px-3 py-2 text-xs">
+                    <div className="text-right">
+                      <div className="text-[10px] uppercase font-bold text-stone-400 tracking-wider">
+                        {activeTargetPlayer.id === currentUserPlayer?.id
+                          ? 'Twoje tempo'
+                          : activeTargetPlayer.name.split(' ')[0]}
+                      </div>
+                      <div
+                        className={`text-base font-black font-mono leading-none ${
+                          stats.pace.status === 'behind'
+                            ? 'text-amber-400'
+                            : stats.pace.status === 'ahead'
+                            ? 'text-lime-400'
+                            : 'text-stone-200'
+                        }`}
+                      >
+                        {stats.pace.playerMatchesPerMonth.toFixed(1)}{' '}
+                        <span className="text-[11px] font-normal text-stone-400">m./mies.</span>
+                      </div>
+                      <div className="text-[10px] text-stone-400 font-mono mt-0.5">
+                        łącznie: {stats.pace.playerMatches} m.
+                      </div>
+                    </div>
+
+                    <div className="h-8 w-px bg-stone-700" />
+
+                    <div>
+                      <div className="text-[10px] uppercase font-bold text-stone-400 tracking-wider">
+                        Śr. miesięczna ligi
+                      </div>
+                      <div className="text-base font-black font-mono text-stone-200 leading-none">
+                        ~{stats.pace.avgLeagueMatchesMonthly.toFixed(1)}{' '}
+                        <span className="text-[11px] font-normal text-stone-400">m./mies.</span>
+                      </div>
+                      <div className="text-[10px] text-stone-400 font-mono mt-0.5">
+                        czas: {stats.pace.elapsedMonths <= 1 ? '1 mc' : `${stats.pace.elapsedMonths.toFixed(1)} mc.`}
+                      </div>
+                    </div>
+                  </div>
                 </div>
-                <span className="text-xs font-black text-amber-300 font-mono">
-                  {stats.playedOpponentsCount}/{stats.totalOpponents} ({stats.explorationRate}%)
-                </span>
               </div>
             )}
-          </div>
+
+            {/* Subtitle / Exploration Rate Bar */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs sm:text-sm text-stone-300">
+              <p className="leading-relaxed text-xs">
+                <strong className="text-lime-300">Zasada Dżentelmena:</strong> Gramy z każdym rywalem w lidze!{' '}
+                <span className="text-stone-300">
+                  Poniżej rekomendowany przeciwnik dopasowany do Twojego tempa i tabeli.
+                </span>
+              </p>
+
+              {/* League Exploration Progress Badge */}
+              {stats && (
+                <div className="shrink-0 bg-stone-950/60 border border-stone-700/80 rounded-xl px-3 py-1.5 flex items-center gap-2">
+                  <div className="w-16 sm:w-20 bg-stone-800 rounded-full h-2 overflow-hidden">
+                    <div
+                      className="bg-gradient-to-r from-amber-400 to-lime-400 h-full rounded-full transition-all duration-500"
+                      style={{ width: `${stats.explorationRate}%` }}
+                    />
+                  </div>
+                  <span className="text-xs font-black text-amber-300 font-mono">
+                    {stats.playedOpponentsCount}/{stats.totalOpponents} ({stats.explorationRate}%)
+                  </span>
+                </div>
+              )}
+            </div>
 
           {/* Featured Opponent Highlight Card */}
           {currentSuggestion ? (
@@ -648,8 +785,9 @@ export const OpponentSuggester: React.FC<OpponentSuggesterProps> = ({
               </div>
             </div>
           )}
-        </div>
-      )}
+          </div>
+        )}
+      </div>
     </section>
   );
 };
