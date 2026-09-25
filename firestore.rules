@@ -1,0 +1,146 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // -------------------------------------------------------------
+    // GLOBAL SECURITY GUARDS & HELPERS
+    // -------------------------------------------------------------
+
+    // Catch-all default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // Role verification against Firestore document (Zero-Trust server-side verification)
+    function isAdmin() {
+      return isSignedIn() && (
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin')
+      );
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // -------------------------------------------------------------
+    // USERS COLLECTION (Kolekcja użytkowników z RBAC)
+    // -------------------------------------------------------------
+    // - Zalogowany gracz może czytać wyłącznie swój profil
+    // - Administrator może przeglądać wszystkich użytkowników (get & list)
+    // - Rejestracja: tylko jako 'player' ze statusem 'pending' (brak eskalacji uprawnień)
+    // - Aktualizacja profilu: gracz może zmieniać tylko własne dane kontaktowe, nie może zmienić 'role' ani 'status'
+    // - Administrator może modyfikować wszystkie pola (zatwierdzanie, blokowanie, zmiana ról)
+    match /users/{userId} {
+      allow get: if isOwner(userId) || isAdmin();
+      allow list: if isAdmin();
+      allow create: if isValidId(userId) && (
+        // Self-registration via Firebase Auth
+        (isOwner(userId)
+          && request.resource.data.id == userId
+          && request.resource.data.role == 'player'
+          && request.resource.data.status == 'pending'
+          && request.resource.data.email is string
+          && request.resource.data.name is string
+          && request.resource.data.name.size() > 0
+          && request.resource.data.name.size() <= 100)
+        ||
+        // Admin direct creation
+        isAdmin()
+      );
+      allow update: if isValidId(userId) && (
+        isAdmin()
+        ||
+        (isOwner(userId)
+          // Ordinary users cannot escalate role or approve themselves
+          && request.resource.data.id == resource.data.id
+          && request.resource.data.role == resource.data.role
+          && request.resource.data.status == resource.data.status
+          && request.resource.data.email == resource.data.email)
+      );
+      allow delete: if isValidId(userId) && isAdmin();
+    }
+
+    // -------------------------------------------------------------
+    // ADMINS COLLECTION (Dedykowana kolekcja uprawnień administracyjnych)
+    // -------------------------------------------------------------
+    match /admins/{adminId} {
+      allow read, write: if isValidId(adminId) && isAdmin();
+    }
+
+    // -------------------------------------------------------------
+    // PLAYERS COLLECTION (Karty zawodników ligi)
+    // -------------------------------------------------------------
+    // Odczyt: dostępny dla każdego zalogowanego użytkownika ligi
+    // Zapis/Modyfikacja/Usunięcie: wyłącznie Administrator
+    match /players/{playerId} {
+      allow read: if isSignedIn();
+      allow create, update: if isValidId(playerId)
+        && isAdmin()
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0
+        && request.resource.data.name.size() <= 100;
+      allow delete: if isValidId(playerId) && isAdmin();
+    }
+
+    // -------------------------------------------------------------
+    // MATCHES COLLECTION (Terminarz i wyniki meczów ligowych)
+    // -------------------------------------------------------------
+    // Odczyt: dostępny dla każdego zalogowanego użytkownika ligi
+    // Zapis/Modyfikacja/Usunięcie: wyłącznie Administrator
+    match /matches/{matchId} {
+      allow read: if isSignedIn();
+      allow create, update: if isValidId(matchId)
+        && isAdmin()
+        && request.resource.data.player1Id is string
+        && request.resource.data.player2Id is string
+        && request.resource.data.sets is list;
+      allow delete: if isValidId(matchId) && isAdmin();
+    }
+
+    // -------------------------------------------------------------
+    // SETTINGS COLLECTION (Ustawienia regulaminu i punktacji ligi)
+    // -------------------------------------------------------------
+    // Odczyt: dostępny dla każdego zalogowanego użytkownika ligi
+    // Zapis: wyłącznie Administrator
+    match /settings/{settingId} {
+      allow read: if isSignedIn();
+      allow write: if isValidId(settingId) && isAdmin();
+    }
+
+    // -------------------------------------------------------------
+    // NOTIFICATIONS COLLECTION (Powiadomienia ligowe)
+    // -------------------------------------------------------------
+    // Odczyt: zalogowani użytkownicy
+    // Tworzenie/Usuwanie: wyłącznie Administrator
+    // Aktualizacja: Administrator lub oznaczanie jako przeczytane ('readBy')
+    match /notifications/{notificationId} {
+      allow read: if isSignedIn();
+      allow create, delete: if isValidId(notificationId) && isAdmin();
+      allow update: if isValidId(notificationId) && isSignedIn() && (
+        isAdmin() ||
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['readBy'])
+      );
+    }
+
+    // -------------------------------------------------------------
+    // SYSTEM LOGS COLLECTION (Dziennik zdarzeń audytowych)
+    // -------------------------------------------------------------
+    // Odczyt: wyłącznie Administrator
+    // Zapis: zalogowani użytkownicy (np. audyt rejestracji, błędów)
+    // Usunięcie: wyłącznie Administrator
+    match /system_logs/{logId} {
+      allow read: if isValidId(logId) && isAdmin();
+      allow create: if isValidId(logId) && isSignedIn();
+      allow update, delete: if isValidId(logId) && isAdmin();
+    }
+  }
+}

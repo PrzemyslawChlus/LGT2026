@@ -1,0 +1,1273 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import React, { useState, useEffect, useMemo } from 'react';
+import { onAuthStateChanged } from 'firebase/auth';
+import { doc, getDoc } from 'firebase/firestore';
+import { Player, Match, LeagueSettings, User, ActiveTab, LeagueNotification, NotificationSettings } from './types';
+import { INITIAL_PLAYERS, INITIAL_MATCHES, INITIAL_SETTINGS } from './data/initialData';
+import { calculateStandings, isScheduledMatchOverdue } from './utils/tennisRules';
+import { logoutUser, updateUserProfile } from './utils/auth';
+import {
+  auth,
+  db,
+  ensureInitialSeed,
+  subscribeToPlayers,
+  subscribeToMatches,
+  subscribeToSettings,
+  subscribeToUsers,
+  subscribeToUserDoc,
+  savePlayerToFirestore,
+  deletePlayerFromFirestore,
+  saveMatchToFirestore,
+  deleteMatchFromFirestore,
+  deleteUserFromFirestore,
+  saveSettingsToFirestore,
+  importDataToFirestore,
+  resetLeagueDataInFirestore,
+  saveNotificationToFirestore,
+  subscribeToNotifications,
+  markNotificationAsReadInFirestore,
+  markAllNotificationsAsReadInFirestore,
+  deleteNotificationFromFirestore,
+} from './lib/firebase';
+import {
+  getNotificationPermission,
+  requestNotificationPermission,
+  isPushSupported,
+  triggerSystemNotification,
+  playNotificationChime,
+  loadNotificationSettings,
+  saveNotificationSettings,
+  isNotificationAlreadyNotified,
+  markNotificationAsNotified,
+  buildMatchScheduledNotification,
+  buildMatchCompletedNotification,
+  buildMatchOverdueReminderNotification,
+  hasUserDismissedPushPrompt,
+  dismissPushPrompt,
+} from './utils/notifications';
+import { Header } from './components/Header';
+import { StandingsTable } from './components/StandingsTable';
+import { MatchesList } from './components/MatchesList';
+import { H2HMatrix } from './components/H2HMatrix';
+import { PlayersDirectory } from './components/PlayersDirectory';
+import { LeagueRules } from './components/LeagueRules';
+import { SettingsModal } from './components/SettingsModal';
+import { MatchModal } from './components/MatchModal';
+import { PlayerModal } from './components/PlayerModal';
+import { PlayerEditModal } from './components/PlayerEditModal';
+import { AdminAddUserModal } from './components/AdminAddUserModal';
+import { PwaInstallModal } from './components/PwaInstallModal';
+import { MobileBottomNav } from './components/MobileBottomNav';
+import { AuthView } from './components/AuthView';
+import { VersionNotification } from './components/VersionNotification';
+import { OpponentSuggester } from './components/OpponentSuggester';
+import { NotificationToast } from './components/NotificationToast';
+import { NotificationDrawer } from './components/NotificationDrawer';
+import { OverdueMatchPromptModal } from './components/OverdueMatchPromptModal';
+import { PushNotificationPromptModal } from './components/PushNotificationPromptModal';
+
+interface BeforeInstallPromptEvent extends Event {
+  readonly platforms: string[];
+  readonly userChoice: Promise<{
+    outcome: 'accepted' | 'dismissed';
+    platform: string;
+  }>;
+  prompt(): Promise<void>;
+}
+
+export default function App() {
+  // Load data from localStorage or initial seed
+  const [players, setPlayers] = useState<Player[]>(() => {
+    try {
+      const saved = localStorage.getItem('tennis_league_players');
+      if (saved) {
+        const parsed: Player[] = JSON.parse(saved);
+        if (parsed.some((p) => p.id === 'p2' || p.name === 'Michał Kowalski' || p.name === 'Piotr Wiśniewski')) {
+          localStorage.setItem('tennis_league_players', JSON.stringify(INITIAL_PLAYERS));
+          return INITIAL_PLAYERS;
+        }
+        return parsed;
+      }
+      return INITIAL_PLAYERS;
+    } catch {
+      return INITIAL_PLAYERS;
+    }
+  });
+
+  const [matches, setMatches] = useState<Match[]>(() => {
+    try {
+      const saved = localStorage.getItem('tennis_league_matches');
+      if (saved) {
+        const parsed: Match[] = JSON.parse(saved);
+        if (parsed.some((m) => m.id === 'm1' || m.id === 'm2')) {
+          localStorage.setItem('tennis_league_matches', JSON.stringify(INITIAL_MATCHES));
+          return INITIAL_MATCHES;
+        }
+        return parsed;
+      }
+      return INITIAL_MATCHES;
+    } catch {
+      return INITIAL_MATCHES;
+    }
+  });
+
+  const [settings, setSettings] = useState<LeagueSettings>(() => {
+    try {
+      const saved = localStorage.getItem('tennis_league_settings');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed.leagueName === 'Warszawska Amatorska Liga Tenisowa' || !parsed.leagueName) {
+          return { ...parsed, leagueName: 'Liga Gentlemanów Tenisa' };
+        }
+        return parsed;
+      }
+      return INITIAL_SETTINGS;
+    } catch {
+      return INITIAL_SETTINGS;
+    }
+  });
+
+  // Active navigation tab
+  const [activeTab, setActiveTab] = useState<ActiveTab>('standings');
+
+  // Cloud Firestore synchronization status
+  const [syncStatus, setSyncStatus] = useState<'syncing' | 'live' | 'offline'>('syncing');
+
+  // Modals state
+  const [isMatchModalOpen, setIsMatchModalOpen] = useState(false);
+  const [editingMatch, setEditingMatch] = useState<Match | null>(null);
+  const [matchInitialP1, setMatchInitialP1] = useState<string | undefined>(undefined);
+  const [matchInitialP2, setMatchInitialP2] = useState<string | undefined>(undefined);
+  const [matchInitialScheduled, setMatchInitialScheduled] = useState<boolean>(false);
+
+  const [selectedPlayerDetail, setSelectedPlayerDetail] = useState<Player | null>(null);
+
+  const [isPlayerEditOpen, setIsPlayerEditOpen] = useState(false);
+  const [playerToEdit, setPlayerToEdit] = useState<Player | null>(null);
+
+  const [isAdminAddUserOpen, setIsAdminAddUserOpen] = useState(false);
+
+  const [isPwaModalOpen, setIsPwaModalOpen] = useState(false);
+  const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
+  const [isPwaInstalled, setIsPwaInstalled] = useState(false);
+
+  // User authentication session via Firebase Auth + Firestore user document
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [allUsers, setAllUsers] = useState<User[]>([]);
+
+  useEffect(() => {
+    let unsubUserDoc: (() => void) | null = null;
+
+    const unsubAuth = onAuthStateChanged(auth, async (fbUser) => {
+      if (unsubUserDoc) {
+        unsubUserDoc();
+        unsubUserDoc = null;
+      }
+
+      if (fbUser) {
+        // Real-time listener for current user's profile and RBAC status
+        unsubUserDoc = subscribeToUserDoc(fbUser.uid, async (profile) => {
+          if (profile) {
+            if (profile.status === 'blocked' || profile.status === 'rejected') {
+              await logoutUser();
+              setCurrentUser(null);
+            } else {
+              setCurrentUser(profile);
+            }
+          } else {
+            // Check admins collection for bootstrap / direct admin access
+            const adminDocRef = doc(db, 'admins', fbUser.uid);
+            const adminSnap = await getDoc(adminDocRef);
+            if (adminSnap.exists()) {
+              setCurrentUser({
+                id: fbUser.uid,
+                email: fbUser.email || '',
+                name: fbUser.displayName || 'Administrator',
+                role: 'admin',
+                status: 'approved',
+                createdAt: Date.now(),
+              });
+            } else {
+              setCurrentUser({
+                id: fbUser.uid,
+                email: fbUser.email || '',
+                name: fbUser.displayName || fbUser.email?.split('@')[0] || 'Użytkownik',
+                role: 'player',
+                status: 'pending',
+                createdAt: Date.now(),
+              });
+            }
+          }
+          setAuthLoading(false);
+        });
+      } else {
+        setCurrentUser(null);
+        setAuthLoading(false);
+      }
+    });
+
+    return () => {
+      unsubAuth();
+      if (unsubUserDoc) unsubUserDoc();
+    };
+  }, []);
+
+  // Protect settings tab: non-admin users cannot stay on settings tab
+  useEffect(() => {
+    if (activeTab === 'settings' && currentUser && currentUser.role !== 'admin') {
+      setActiveTab('standings');
+    }
+  }, [activeTab, currentUser]);
+
+  const handleLogout = async () => {
+    await logoutUser();
+    setCurrentUser(null);
+  };
+
+  // Find player profile associated with the currently logged-in account
+  const currentUserPlayer = useMemo(() => {
+    if (!currentUser) return null;
+    return (
+      players.find(
+        (pl) =>
+          (currentUser.playerId && pl.id === currentUser.playerId) ||
+          (currentUser.email && pl.email?.toLowerCase() === currentUser.email.toLowerCase()) ||
+          pl.name.trim().toLowerCase() === currentUser.name.trim().toLowerCase()
+      ) || null
+    );
+  }, [currentUser, players]);
+
+  // Push & In-app notifications state
+  const [notifications, setNotifications] = useState<LeagueNotification[]>([]);
+  const [notificationSettings, setNotificationSettings] = useState<NotificationSettings>(() =>
+    loadNotificationSettings()
+  );
+  const [isNotificationDrawerOpen, setIsNotificationDrawerOpen] = useState(false);
+  const [toastNotification, setToastNotification] = useState<LeagueNotification | null>(null);
+  const [notificationPermission, setNotificationPermission] = useState<
+    'granted' | 'denied' | 'default' | 'unsupported'
+  >(() => getNotificationPermission());
+  const [isPushPromptOpen, setIsPushPromptOpen] = useState(false);
+
+  // Overdue match prompt state (prompt participants on login if match date/time has passed)
+  const [overdueMatchToPrompt, setOverdueMatchToPrompt] = useState<Match | null>(null);
+  const [postponedOverdueMatchIds, setPostponedOverdueMatchIds] = useState<string[]>([]);
+
+  // Determine active player ID for notifications (explicit user selection or logged-in player)
+  const activeNotificationPlayerId = useMemo(() => {
+    if (notificationSettings.selectedPlayerId !== undefined && notificationSettings.selectedPlayerId !== null) {
+      return notificationSettings.selectedPlayerId;
+    }
+    if (currentUserPlayer) {
+      return currentUserPlayer.id;
+    }
+    return null;
+  }, [notificationSettings.selectedPlayerId, currentUserPlayer]);
+
+  // Unread notification count for active player
+  const unreadNotificationsCount = useMemo(() => {
+    return notifications.filter((n) => {
+      if (activeNotificationPlayerId && n.recipientPlayerIds?.length) {
+        if (!n.recipientPlayerIds.includes(activeNotificationPlayerId)) return false;
+        return !n.readBy || !n.readBy.includes(activeNotificationPlayerId);
+      }
+      return !n.readBy || n.readBy.length === 0;
+    }).length;
+  }, [notifications, activeNotificationPlayerId]);
+
+  // Real-time listener for incoming league push notifications
+  useEffect(() => {
+    const unsubNotifs = subscribeToNotifications((notifs) => {
+      setNotifications(notifs);
+
+      // Check for incoming notifications that need to be alerted
+      notifs.forEach((n) => {
+        if (isNotificationAlreadyNotified(n.id)) return;
+
+        // Skip old notifications (> 24 hours old)
+        const isFresh = Date.now() - n.createdAt < 24 * 60 * 60 * 1000;
+        if (!isFresh) {
+          markNotificationAsNotified(n.id);
+          return;
+        }
+
+        // Check if recipient matches our active notification player
+        const isRelevant =
+          !activeNotificationPlayerId ||
+          !n.recipientPlayerIds ||
+          n.recipientPlayerIds.length === 0 ||
+          n.recipientPlayerIds.includes(activeNotificationPlayerId);
+
+        if (!isRelevant) return;
+
+        // Check user preferences
+        if (n.type === 'match_scheduled' && !notificationSettings.notifyScheduled) return;
+        if (n.type === 'match_completed' && !notificationSettings.notifyResults) return;
+        if (n.type === 'match_overdue_reminder' && notificationSettings.notifyOverdue === false) return;
+
+        // Mark as locally notified so we don't alert twice
+        markNotificationAsNotified(n.id);
+
+        // Play audio chime
+        if (notificationSettings.soundEnabled) {
+          playNotificationChime();
+        }
+
+        // Fire system push notification (Service Worker / Native browser)
+        triggerSystemNotification(n.title, {
+          body: n.body,
+          url: n.url,
+        });
+
+        // Show in-app banner toast
+        setToastNotification(n);
+      });
+    });
+
+    return () => unsubNotifs();
+  }, [activeNotificationPlayerId, notificationSettings]);
+
+  // Check on login / session if there is an overdue scheduled match for the current participant
+  // "Przy najbliższym logowaniu po przekroczeniu terminu zaplanowego meczu, pytaj uczestników czy mecz się odbył."
+  useEffect(() => {
+    if (!currentUserPlayer) return;
+    if (overdueMatchToPrompt) return;
+
+    // Find first scheduled match where start date/time has passed and user is one of the participants
+    const matchToVerify = matches.find((m) => {
+      if (m.status !== 'scheduled') return false;
+      if (postponedOverdueMatchIds.includes(m.id)) return false;
+      const isParticipant =
+        m.player1Id === currentUserPlayer.id || m.player2Id === currentUserPlayer.id;
+      if (!isParticipant) return false;
+      return isScheduledMatchOverdue(m, 0);
+    });
+
+    if (matchToVerify) {
+      setOverdueMatchToPrompt(matchToVerify);
+    }
+  }, [currentUserPlayer, matches, overdueMatchToPrompt, postponedOverdueMatchIds]);
+
+  // Automated 2h post-match push notification check
+  // "2h po zaplanowanym terminie meczu wyślij powiadomienie push (do uczestników meczu) jeśli wynik nie został wprowadzony. Jeśli został - nie wysyłaj push."
+  useEffect(() => {
+    const checkAndDispatchOverduePushReminders = async () => {
+      const now = Date.now();
+
+      for (const m of matches) {
+        // ONLY matches that remain scheduled and uncompleted (no result entered)
+        if (m.status !== 'scheduled') continue;
+        // Check if 2 hours have passed since scheduled date & time
+        if (!isScheduledMatchOverdue(m, 2, now)) continue;
+        // Avoid duplicate push notifications
+        if (m.overduePushSent) continue;
+        const alreadyInNotifications = notifications.some(
+          (n) => n.matchId === m.id && n.type === 'match_overdue_reminder'
+        );
+        if (alreadyInNotifications) continue;
+
+        // Build and dispatch overdue reminder notification targeted to match participants
+        const reminderNotif = buildMatchOverdueReminderNotification(m, players);
+        try {
+          await saveNotificationToFirestore(reminderNotif);
+
+          // Mark match as overdue push sent
+          const updatedMatch: Match = {
+            ...m,
+            overduePushSent: true,
+            overdueNotifiedAt: now,
+          };
+          await saveMatchToFirestore(updatedMatch);
+
+          setMatches((prev) =>
+            prev.map((item) => (item.id === m.id ? updatedMatch : item))
+          );
+        } catch (err) {
+          console.warn('[App] Failed to dispatch 2h overdue reminder:', err);
+        }
+      }
+    };
+
+    checkAndDispatchOverduePushReminders();
+    const intervalId = setInterval(checkAndDispatchOverduePushReminders, 60 * 1000);
+    return () => clearInterval(intervalId);
+  }, [matches, notifications, players]);
+
+  // Proactively prompt logged-in users to enable push notifications if not yet decided
+  useEffect(() => {
+    if (!currentUser) return;
+    if (isPushPromptOpen) return;
+    if (overdueMatchToPrompt) return; // Prioritize overdue match prompt if present
+    if (!isPushSupported()) return;
+    if (notificationPermission !== 'default') return;
+    if (hasUserDismissedPushPrompt()) return;
+
+    // Small delay (1.8s) so the initial dashboard loads smoothly
+    const timer = setTimeout(() => {
+      setIsPushPromptOpen(true);
+    }, 1800);
+
+    return () => clearTimeout(timer);
+  }, [currentUser, notificationPermission, overdueMatchToPrompt, isPushPromptOpen]);
+
+  const handleUpdateNotificationSettings = (newSettings: NotificationSettings) => {
+    setNotificationSettings(newSettings);
+    saveNotificationSettings(newSettings);
+  };
+
+  const handleRequestNotificationPermission = async () => {
+    const perm = await requestNotificationPermission();
+    setNotificationPermission(perm);
+    if (perm === 'granted') {
+      handleSendTestNotification();
+    }
+  };
+
+  const handleEnablePushFromPrompt = async () => {
+    const perm = await requestNotificationPermission();
+    setNotificationPermission(perm);
+    setIsPushPromptOpen(false);
+    if (perm === 'granted') {
+      const updated: NotificationSettings = {
+        ...notificationSettings,
+        enabled: true,
+      };
+      handleUpdateNotificationSettings(updated);
+      handleSendTestNotification();
+    } else if (perm === 'denied') {
+      dismissPushPrompt(30);
+    }
+  };
+
+  const handleDismissPushPrompt = () => {
+    dismissPushPrompt(7);
+    setIsPushPromptOpen(false);
+  };
+
+  const handleSendTestNotification = async () => {
+    const testNotif: LeagueNotification = {
+      id: `notif_test_${Date.now()}`,
+      title: '🎾 Test powiadomień LGT',
+      body: 'System powiadomień działa pomyślnie na Twoim urządzeniu!',
+      type: 'test',
+      recipientPlayerIds: activeNotificationPlayerId ? [activeNotificationPlayerId] : [],
+      createdAt: Date.now(),
+      url: '#matches',
+      readBy: [],
+    };
+
+    if (notificationSettings.soundEnabled) {
+      playNotificationChime();
+    }
+
+    await triggerSystemNotification(testNotif.title, {
+      body: testNotif.body,
+      url: testNotif.url,
+    });
+
+    setToastNotification(testNotif);
+    saveNotificationToFirestore(testNotif).catch((err) => {
+      console.warn('Could not save test notification to Firestore:', err);
+    });
+  };
+
+  const handleMarkNotificationAsRead = (notificationId: string) => {
+    if (activeNotificationPlayerId) {
+      markNotificationAsReadInFirestore(notificationId, activeNotificationPlayerId).catch(console.warn);
+    }
+  };
+
+  const handleMarkAllNotificationsAsRead = () => {
+    if (activeNotificationPlayerId && notifications.length > 0) {
+      const ids = notifications.map((n) => n.id);
+      markAllNotificationsAsReadInFirestore(ids, activeNotificationPlayerId).catch(console.warn);
+    }
+  };
+
+  const handleDeleteNotification = (notificationId: string) => {
+    deleteNotificationFromFirestore(notificationId).catch(console.warn);
+  };
+
+  const handleOpenMyProfile = () => {
+    if (currentUserPlayer) {
+      setSelectedPlayerDetail(currentUserPlayer);
+    }
+  };
+
+  const handleEditMyProfile = () => {
+    if (!currentUser) return;
+    if (currentUserPlayer) {
+      setPlayerToEdit(currentUserPlayer);
+      setIsPlayerEditOpen(true);
+    } else {
+      // Fallback: create temporary player profile from currentUser
+      const tempPlayer: Player = {
+        id: currentUser.playerId || `p_${Date.now()}`,
+        name: currentUser.name,
+        nickname: currentUser.nickname,
+        phone: currentUser.phone || '+48 ',
+        email: currentUser.email,
+        avatarColor: 'bg-emerald-700',
+        playStyle: currentUser.playStyle?.trim() || undefined,
+        preferredCourts: currentUser.preferredCourts?.trim() || undefined,
+        preferredTimes: currentUser.preferredTimes?.trim() || undefined,
+        preferredSurfaces: ['Mączka'],
+        status: 'active',
+      };
+      setPlayerToEdit(tempPlayer);
+      setIsPlayerEditOpen(true);
+    }
+  };
+
+  // Real-time synchronization with Firestore across all devices
+  useEffect(() => {
+    ensureInitialSeed();
+
+    const unsubPlayers = subscribeToPlayers((firestorePlayers) => {
+      if (firestorePlayers && firestorePlayers.length > 0) {
+        setPlayers(firestorePlayers);
+        setSyncStatus('live');
+      }
+    });
+
+    const unsubMatches = subscribeToMatches((firestoreMatches) => {
+      setMatches(firestoreMatches);
+      setSyncStatus('live');
+    });
+
+    const unsubSettings = subscribeToSettings((firestoreSettings) => {
+      if (firestoreSettings) {
+        setSettings(firestoreSettings);
+        setSyncStatus('live');
+      }
+    });
+
+    let unsubUsers: (() => void) | null = null;
+    if (currentUser?.role === 'admin') {
+      unsubUsers = subscribeToUsers((firestoreUsers) => {
+        if (firestoreUsers) {
+          setAllUsers(firestoreUsers);
+        }
+      });
+    }
+
+    return () => {
+      unsubPlayers();
+      unsubMatches();
+      unsubSettings();
+      if (unsubUsers) unsubUsers();
+    };
+  }, [currentUser?.role]);
+
+  // Sync to localStorage as offline fast cache
+  useEffect(() => {
+    try {
+      localStorage.setItem('tennis_league_players', JSON.stringify(players));
+    } catch (err) {
+      console.warn('Failed to save players to localStorage', err);
+    }
+  }, [players]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('tennis_league_matches', JSON.stringify(matches));
+    } catch (err) {
+      console.warn('Failed to save matches to localStorage', err);
+    }
+  }, [matches]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('tennis_league_settings', JSON.stringify(settings));
+    } catch (err) {
+      console.warn('Failed to save settings to localStorage', err);
+    }
+  }, [settings]);
+
+  // Handle PWA installation events
+  useEffect(() => {
+    const handleBeforeInstall = (e: Event) => {
+      e.preventDefault();
+      setDeferredPrompt(e as BeforeInstallPromptEvent);
+    };
+
+    const handleAppInstalled = () => {
+      setIsPwaInstalled(true);
+      setDeferredPrompt(null);
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstall);
+    window.addEventListener('appinstalled', handleAppInstalled);
+
+    if (window.matchMedia('(display-mode: standalone)').matches) {
+      setIsPwaInstalled(true);
+    }
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstall);
+      window.removeEventListener('appinstalled', handleAppInstalled);
+    };
+  }, []);
+
+  // Prevent background page scrolling when any modal is open (strictly 1 active scroll)
+  const isAnyModalOpen =
+    isMatchModalOpen ||
+    !!selectedPlayerDetail ||
+    isPlayerEditOpen ||
+    isPwaModalOpen ||
+    isAdminAddUserOpen;
+
+  useEffect(() => {
+    if (isAnyModalOpen) {
+      const prevOverflow = document.body.style.overflow;
+      document.body.style.overflow = 'hidden';
+      return () => {
+        document.body.style.overflow = prevOverflow;
+      };
+    }
+  }, [isAnyModalOpen]);
+
+  const handleTriggerPwaInstall = () => {
+    if (deferredPrompt) {
+      deferredPrompt.prompt();
+      deferredPrompt.userChoice.then((choice) => {
+        if (choice.outcome === 'accepted') {
+          setIsPwaInstalled(true);
+        }
+        setDeferredPrompt(null);
+      });
+    } else {
+      setIsPwaModalOpen(true);
+    }
+  };
+
+  // Calculate standings
+  const standings = useMemo(() => {
+    return calculateStandings(players, matches, settings);
+  }, [players, matches, settings]);
+
+  // Statistics
+  const stats = useMemo(() => {
+    const completed = matches.filter((m) => m.status === 'completed').length;
+    const scheduled = matches.filter((m) => m.status === 'scheduled').length;
+    return {
+      totalPlayers: players.length,
+      completedMatches: completed,
+      scheduledMatches: scheduled,
+    };
+  }, [players, matches]);
+
+  // Pending user registrations for admin approval
+  const pendingApprovalsCount = useMemo(() => {
+    return allUsers.filter((u) => u.status === 'pending').length;
+  }, [allUsers]);
+
+  // Handlers for matches
+  const handleOpenNewMatch = () => {
+    setEditingMatch(null);
+    setMatchInitialP1(currentUserPlayer?.id || players[0]?.id);
+    setMatchInitialP2(undefined);
+    setMatchInitialScheduled(false);
+    setIsMatchModalOpen(true);
+  };
+
+  const handleOpenNewMatchBetween = (p1Id: string, p2Id: string, isScheduled: boolean = false) => {
+    setEditingMatch(null);
+    setMatchInitialP1(p1Id);
+    setMatchInitialP2(p2Id);
+    setMatchInitialScheduled(isScheduled);
+    setIsMatchModalOpen(true);
+  };
+
+  const handleEditMatch = (match: Match) => {
+    setEditingMatch(match);
+    setIsMatchModalOpen(true);
+  };
+
+  const handleDeleteMatch = (matchId: string) => {
+    setMatches((prev) => {
+      const updated = prev.filter((m) => m.id !== matchId);
+      try {
+        localStorage.setItem('tennis_league_matches', JSON.stringify(updated));
+      } catch (err) {
+        console.warn('Failed to save matches to localStorage', err);
+      }
+      return updated;
+    });
+    deleteMatchFromFirestore(matchId).catch((err) => {
+      console.warn('Could not delete match from Firestore:', err);
+    });
+  };
+
+  const handleCompleteScheduledMatch = (match: Match) => {
+    setEditingMatch(match);
+    setIsMatchModalOpen(true);
+  };
+
+  const handleSaveMatch = (matchToSave: Match) => {
+    const existingMatch = matches.find((m) => m.id === matchToSave.id);
+
+    setMatches((prev) => {
+      const exists = prev.some((m) => m.id === matchToSave.id);
+      if (exists) {
+        return prev.map((m) => (m.id === matchToSave.id ? matchToSave : m));
+      }
+      return [matchToSave, ...prev];
+    });
+
+    saveMatchToFirestore(matchToSave).catch((err) => {
+      console.warn('Could not sync match to Firestore:', err);
+    });
+
+    // Generate push notifications for participants
+    try {
+      let notif: LeagueNotification | null = null;
+      if (matchToSave.status === 'scheduled') {
+        const isNew = !existingMatch || existingMatch.status !== 'scheduled';
+        const isTimeChanged =
+          existingMatch &&
+          (existingMatch.date !== matchToSave.date ||
+            existingMatch.time !== matchToSave.time ||
+            existingMatch.courtName !== matchToSave.courtName);
+        if (isNew || isTimeChanged) {
+          notif = buildMatchScheduledNotification(matchToSave, players);
+        }
+      } else if (matchToSave.status === 'completed') {
+        const isNewResult = !existingMatch || existingMatch.status !== 'completed';
+        const isScoreChanged =
+          existingMatch &&
+          JSON.stringify(existingMatch.sets) !== JSON.stringify(matchToSave.sets);
+        if (isNewResult || isScoreChanged) {
+          notif = buildMatchCompletedNotification(matchToSave, players);
+        }
+      }
+
+      if (notif) {
+        saveNotificationToFirestore(notif).catch((err) => {
+          console.warn('Could not save notification to Firestore:', err);
+        });
+      }
+    } catch (err) {
+      console.warn('Error creating match notification:', err);
+    }
+  };
+
+  // Handlers for overdue match prompt decisions
+  // "Jeśli tak, zachęć do uzupełnienia wyniku. Jeśli odpowie nie, usuń wpis o zaplanowanym meczu. Wystarczy, że jeden z dwóch uczestników udzieli odpowiedzi."
+  const handleConfirmOverdueHeld = (match: Match) => {
+    setOverdueMatchToPrompt(null);
+    handleCompleteScheduledMatch(match);
+  };
+
+  const handleConfirmOverdueNotHeld = async (match: Match) => {
+    setOverdueMatchToPrompt(null);
+    handleDeleteMatch(match.id);
+    setToastNotification({
+      id: `toast_del_${match.id}_${Date.now()}`,
+      title: '🗑️ Usunięto zaplanowany mecz',
+      body: 'Wpis o meczu, który się nie odbył, został pomyślnie usunięty z terminarza ligi.',
+      type: 'system',
+      recipientPlayerIds: [match.player1Id, match.player2Id],
+      createdAt: Date.now(),
+    });
+  };
+
+  const handlePostponeOverduePrompt = (matchId: string) => {
+    setPostponedOverdueMatchIds((prev) => [...prev, matchId]);
+    setOverdueMatchToPrompt(null);
+  };
+
+  const handleRescheduleOverduePrompt = (match: Match) => {
+    setOverdueMatchToPrompt(null);
+    handleEditMatch(match);
+  };
+
+  // Handlers for players
+  const handleAddNewPlayer = () => {
+    if (currentUser?.role === 'admin') {
+      setIsAdminAddUserOpen(true);
+    } else {
+      setPlayerToEdit(null);
+      setIsPlayerEditOpen(true);
+    }
+  };
+
+  const handleEditPlayer = (player: Player) => {
+    setPlayerToEdit(player);
+    setIsPlayerEditOpen(true);
+  };
+
+  const handleSavePlayer = (player: Player, newPassword?: string) => {
+    setPlayers((prev) => {
+      const exists = prev.some((p) => p.id === player.id);
+      if (exists) {
+        return prev.map((p) => (p.id === player.id ? player : p));
+      }
+      return [...prev, player];
+    });
+    savePlayerToFirestore(player).catch((err) => {
+      console.warn('Could not sync player to Firestore:', err);
+    });
+
+    // Synchronize linked user profile if exists
+    try {
+      const matchedUser = allUsers.find(
+        (u) =>
+          u.playerId === player.id ||
+          (u.name && player.name && u.name.trim().toLowerCase() === player.name.trim().toLowerCase()) ||
+          (player.email && u.email?.toLowerCase() === player.email.toLowerCase()) ||
+          (currentUser && u.id === currentUser.id && (u.playerId === player.id || player.name.toLowerCase() === u.name.toLowerCase()))
+      );
+
+      if (matchedUser) {
+        updateUserProfile(matchedUser.id, {
+          name: player.name,
+          nickname: player.nickname,
+          phone: player.phone,
+          email: player.email,
+          playStyle: player.playStyle,
+          preferredCourts: player.preferredCourts,
+          preferredTimes: player.preferredTimes,
+          newPassword: newPassword,
+        }).then((updated) => {
+          if (currentUser && currentUser.id === matchedUser.id) {
+            setCurrentUser(updated);
+          }
+        }).catch(console.warn);
+      }
+    } catch (err) {
+      console.warn('Could not sync user profile in auth registry:', err);
+    }
+  };
+
+  const handleDeletePlayer = (playerId: string) => {
+    // 1. Delete all matches of this player from state and Firestore
+    const matchesToDelete = matches.filter((m) => m.player1Id === playerId || m.player2Id === playerId);
+    matchesToDelete.forEach((m) => {
+      deleteMatchFromFirestore(m.id).catch((err) => {
+        console.warn('Could not delete match from Firestore:', err);
+      });
+    });
+    setMatches((prev) => prev.filter((m) => m.player1Id !== playerId && m.player2Id !== playerId));
+
+    // 2. Delete player from state and Firestore
+    setPlayers((prev) => prev.filter((p) => p.id !== playerId));
+    deletePlayerFromFirestore(playerId).catch((err) => {
+      console.warn('Could not delete player from Firestore:', err);
+    });
+
+    // 3. Remove linked user account if exists (except admins)
+    try {
+      const linkedUser = allUsers.find((u) => u.playerId === playerId);
+      if (linkedUser && linkedUser.role !== 'admin') {
+        deleteUserFromFirestore(linkedUser.id).catch(() => {});
+      }
+    } catch (err) {
+      console.warn('Could not clean linked user on delete:', err);
+    }
+
+    if (selectedPlayerDetail?.id === playerId) {
+      setSelectedPlayerDetail(null);
+    }
+  };
+
+  // Handlers for export / import / reset
+  const handleExportData = () => {
+    if (currentUser?.role !== 'admin') {
+      alert('Tylko administrator ligi może eksportować dane.');
+      return;
+    }
+    const backup = {
+      players,
+      matches,
+      settings,
+      exportDate: new Date().toISOString(),
+      version: 1,
+    };
+    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `liga-tenisowa-${new Date().toISOString().split('T')[0]}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleImportData = (jsonString: string) => {
+    if (currentUser?.role !== 'admin') {
+      alert('Tylko administrator ligi może importować dane.');
+      return;
+    }
+    try {
+      const parsed = JSON.parse(jsonString);
+      if (Array.isArray(parsed.players) && Array.isArray(parsed.matches)) {
+        setPlayers(parsed.players);
+        setMatches(parsed.matches);
+        if (parsed.settings) setSettings(parsed.settings);
+        importDataToFirestore(parsed.players, parsed.matches, parsed.settings).catch((err) => {
+          console.warn('Could not import data into Firestore:', err);
+        });
+      } else {
+        alert('Plik ma nieprawidłowy format danych ligowych.');
+      }
+    } catch {
+      alert('Błąd podczas parsowania pliku JSON.');
+    }
+  };
+
+  const handleResetData = () => {
+    if (currentUser?.role !== 'admin') {
+      alert('Tylko administrator ligi może zresetować dane.');
+      return;
+    }
+    setPlayers(INITIAL_PLAYERS);
+    setMatches(INITIAL_MATCHES);
+    setSettings(INITIAL_SETTINGS);
+    localStorage.removeItem('tennis_league_players');
+    localStorage.removeItem('tennis_league_matches');
+    localStorage.removeItem('tennis_league_settings');
+    resetLeagueDataInFirestore().catch((err) => {
+      console.warn('Could not reset data in Firestore:', err);
+    });
+  };
+
+  const handleScrollToSuggester = () => {
+    setActiveTab('standings');
+    setTimeout(() => {
+      const el = document.getElementById('opponent-suggester-hero');
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }, 80);
+  };
+
+  // Show clean loading screen while verifying Firebase Auth session
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-stone-950 flex flex-col items-center justify-center p-4">
+        <div className="w-16 h-16 rounded-2xl bg-emerald-950 border border-amber-400/40 p-2 flex items-center justify-center animate-pulse shadow-2xl shadow-black">
+          <img src="/logo.svg" alt="LGT" className="w-full h-full object-contain" />
+        </div>
+        <p className="text-xs text-amber-300/80 mt-3 font-bold tracking-wide">
+          Weryfikacja sesji Ligi Gentlemanów...
+        </p>
+      </div>
+    );
+  }
+
+  // If user is not authenticated, block all access to the app and show AuthView
+  if (!currentUser) {
+    return (
+      <>
+        <AuthView
+          onLoginSuccess={(user) => setCurrentUser(user)}
+          players={players}
+          onPlayerCreated={(newPlayer) => {
+            handleSavePlayer(newPlayer);
+          }}
+        />
+        <VersionNotification />
+      </>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-stone-100 flex flex-col font-sans selection:bg-lime-300 selection:text-emerald-950 overflow-x-hidden">
+      {/* Top Application Header with Navigation Tabs */}
+      <Header
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        onOpenNewMatch={handleOpenNewMatch}
+        settings={settings}
+        stats={stats}
+        canInstallPwa={true}
+        onInstallPwa={handleTriggerPwaInstall}
+        isPwaInstalled={isPwaInstalled}
+        currentUser={currentUser}
+        onLogout={handleLogout}
+        onOpenMyProfile={handleOpenMyProfile}
+        onEditMyProfile={handleEditMyProfile}
+        pendingApprovalsCount={pendingApprovalsCount}
+        syncStatus={syncStatus}
+        onScrollToSuggester={handleScrollToSuggester}
+        unreadNotificationsCount={unreadNotificationsCount}
+        hasNotificationPermission={notificationPermission === 'granted'}
+        onOpenNotifications={() => setIsNotificationDrawerOpen(true)}
+      />
+
+      {/* Main Container */}
+      <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 pt-3 pb-24 sm:py-6 space-y-5 sm:space-y-6 min-w-0">
+        {/* Prominent Opponent Suggester Hero Section (Mobilizacja do gry z nowymi rywalami) */}
+        {(activeTab === 'standings' || activeTab === 'matches') && (
+          <OpponentSuggester
+            players={players}
+            matches={matches}
+            standings={standings}
+            settings={settings}
+            currentUser={currentUser}
+            currentUserPlayer={currentUserPlayer}
+            onSelectPlayer={(p) => setSelectedPlayerDetail(p)}
+            onOpenNewMatchBetween={handleOpenNewMatchBetween}
+          />
+        )}
+
+        {activeTab === 'standings' && (
+          <StandingsTable
+            standings={standings}
+            settings={settings}
+            onSelectPlayer={(p) => setSelectedPlayerDetail(p)}
+          />
+        )}
+
+        {activeTab === 'matches' && (
+          <MatchesList
+            matches={matches}
+            players={players}
+            onOpenNewMatch={handleOpenNewMatch}
+            onEditMatch={handleEditMatch}
+            onDeleteMatch={handleDeleteMatch}
+            onCompleteScheduledMatch={handleCompleteScheduledMatch}
+            onSelectPlayer={(p) => setSelectedPlayerDetail(p)}
+          />
+        )}
+
+        {activeTab === 'h2h' && (
+          <H2HMatrix
+            players={players}
+            matches={matches}
+            currentUser={currentUser}
+            onOpenNewMatchBetween={handleOpenNewMatchBetween}
+            onSelectPlayer={(p) => setSelectedPlayerDetail(p)}
+          />
+        )}
+
+        {activeTab === 'players' && (
+          <PlayersDirectory
+            players={players}
+            matches={matches}
+            currentUser={currentUser}
+            currentUserPlayer={currentUserPlayer}
+            onSelectPlayer={(p) => setSelectedPlayerDetail(p)}
+            onEditPlayer={handleEditPlayer}
+            onAddNewPlayer={handleAddNewPlayer}
+            onScheduleWithPlayer={(p) => {
+              handleOpenNewMatchBetween(currentUserPlayer?.id || players[0]?.id || '', p.id, false);
+            }}
+          />
+        )}
+
+        {activeTab === 'rules' && (
+          <LeagueRules
+            settings={settings}
+            currentUser={currentUser}
+            onGoToSettings={() => setActiveTab('settings')}
+          />
+        )}
+
+        {activeTab === 'settings' && (
+          currentUser?.role === 'admin' ? (
+            <SettingsModal
+              settings={settings}
+              onSaveSettings={(newSettings) => {
+                if (currentUser?.role !== 'admin') {
+                  alert('Tylko administrator ligi może modyfikować ustawienia.');
+                  return;
+                }
+                setSettings(newSettings);
+                saveSettingsToFirestore(newSettings).catch((err) => {
+                  console.warn('Could not save settings to Firestore:', err);
+                });
+              }}
+              onExportData={handleExportData}
+              onImportData={handleImportData}
+              onResetData={handleResetData}
+              currentUser={currentUser}
+              onLogout={handleLogout}
+              onEditMyProfile={handleEditMyProfile}
+              onPlayerCreated={(newPlayer) => {
+                handleSavePlayer(newPlayer);
+              }}
+            />
+          ) : null
+        )}
+      </main>
+
+      {/* Footer */}
+      <footer className="bg-stone-200/90 border-t border-stone-300 pt-6 pb-24 sm:pb-6 text-center text-xs text-stone-600">
+        <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5">
+            <img src="/logo.svg" alt="Liga Gentlemanów Tenisa" className="w-7 h-7 object-contain" />
+            <span className="font-bold text-stone-800">
+              {settings.leagueName}
+            </span>
+            <span className="text-stone-400">•</span>
+            <span>Tenis • Klasa • Fair Play</span>
+          </div>
+          <div className="flex items-center gap-4 text-stone-500">
+            <span>Reguły: Best-of-3 (do 2 wygranych setów)</span>
+            <span>•</span>
+            <button
+              onClick={handleTriggerPwaInstall}
+              className="hover:text-emerald-800 font-semibold cursor-pointer underline"
+            >
+              Zainstaluj na ekranie telefonu
+            </button>
+          </div>
+        </div>
+      </footer>
+
+      {/* Bottom Navigation Bar & FAB Action */}
+      <MobileBottomNav
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        scheduledCount={stats.scheduledMatches}
+        pendingApprovalsCount={pendingApprovalsCount}
+        onOpenNewMatch={handleOpenNewMatch}
+        isAdmin={currentUser?.role === 'admin'}
+      />
+
+      {/* Match Modal (New / Edit / Complete) */}
+      {isMatchModalOpen && (
+        <MatchModal
+          isOpen={isMatchModalOpen}
+          onClose={() => setIsMatchModalOpen(false)}
+          onSave={handleSaveMatch}
+          onDelete={handleDeleteMatch}
+          players={players}
+          matches={matches}
+          editingMatch={editingMatch}
+          initialPlayer1Id={matchInitialP1}
+          initialPlayer2Id={matchInitialP2}
+          initialScheduled={matchInitialScheduled}
+          settings={settings}
+        />
+      )}
+
+      {/* Player Detail & H2H Modal */}
+      {selectedPlayerDetail && (
+        <PlayerModal
+          player={selectedPlayerDetail}
+          players={players}
+          matches={matches}
+          currentUser={currentUser}
+          onClose={() => setSelectedPlayerDetail(null)}
+          onEditPlayer={(p) => {
+            setSelectedPlayerDetail(null);
+            handleEditPlayer(p);
+          }}
+          onOpenNewMatchWith={(p) => {
+            setSelectedPlayerDetail(null);
+            handleOpenNewMatchBetween(currentUserPlayer?.id || players[0]?.id || '', p.id, false);
+          }}
+          onSelectOtherPlayer={(other) => setSelectedPlayerDetail(other)}
+        />
+      )}
+
+      {/* Player Add / Edit Modal */}
+      {isPlayerEditOpen && (
+        <PlayerEditModal
+          isOpen={isPlayerEditOpen}
+          onClose={() => setIsPlayerEditOpen(false)}
+          onSave={handleSavePlayer}
+          onDelete={handleDeletePlayer}
+          playerToEdit={playerToEdit}
+          currentUser={currentUser}
+        />
+      )}
+
+      {/* Admin Add User and Player Modal */}
+      {isAdminAddUserOpen && (
+        <AdminAddUserModal
+          isOpen={isAdminAddUserOpen}
+          onClose={() => setIsAdminAddUserOpen(false)}
+          currentUser={currentUser}
+          onPlayerCreated={(newPlayer) => {
+            setPlayers((prev) => {
+              const exists = prev.some((p) => p.id === newPlayer.id);
+              if (exists) {
+                return prev.map((p) => (p.id === newPlayer.id ? newPlayer : p));
+              }
+              return [...prev, newPlayer];
+            });
+          }}
+        />
+      )}
+
+      {/* PWA Install Instructions Modal */}
+      {isPwaModalOpen && (
+        <PwaInstallModal
+          isOpen={isPwaModalOpen}
+          onClose={() => setIsPwaModalOpen(false)}
+          onPromptInstall={handleTriggerPwaInstall}
+          canDirectInstall={!!deferredPrompt}
+        />
+      )}
+
+      {/* Proactive Version Update Notification */}
+      <VersionNotification />
+
+      {/* Overdue Scheduled Match Decision Prompt Modal */}
+      {overdueMatchToPrompt && (
+        <OverdueMatchPromptModal
+          isOpen={!!overdueMatchToPrompt}
+          match={overdueMatchToPrompt}
+          players={players}
+          onConfirmHeld={handleConfirmOverdueHeld}
+          onConfirmNotHeld={handleConfirmOverdueNotHeld}
+          onPostpone={handlePostponeOverduePrompt}
+          onReschedule={handleRescheduleOverduePrompt}
+        />
+      )}
+
+      {/* Push Notification Opt-in Prompt Pop-up Modal */}
+      <PushNotificationPromptModal
+        isOpen={isPushPromptOpen}
+        onEnable={handleEnablePushFromPrompt}
+        onDismiss={handleDismissPushPrompt}
+      />
+
+      {/* In-App Floating Toast Notification */}
+      <NotificationToast
+        notification={toastNotification}
+        onClose={() => setToastNotification(null)}
+        onClick={(notif) => {
+          setToastNotification(null);
+          if (notif.matchId) {
+            setActiveTab('matches');
+          }
+        }}
+      />
+
+      {/* Notification Drawer Modal */}
+      <NotificationDrawer
+        isOpen={isNotificationDrawerOpen}
+        onClose={() => setIsNotificationDrawerOpen(false)}
+        notifications={notifications}
+        settings={notificationSettings}
+        onUpdateSettings={handleUpdateNotificationSettings}
+        permission={notificationPermission}
+        onRequestPermission={handleRequestNotificationPermission}
+        onSendTestNotification={handleSendTestNotification}
+        onMarkAsRead={handleMarkNotificationAsRead}
+        onMarkAllAsRead={handleMarkAllNotificationsAsRead}
+        onDeleteNotification={handleDeleteNotification}
+        onSelectMatch={() => {
+          setActiveTab('matches');
+        }}
+        players={players}
+        currentUser={currentUser}
+        activePlayerId={activeNotificationPlayerId}
+        onSelectActivePlayerId={(id) => {
+          const updated = { ...notificationSettings, selectedPlayerId: id };
+          handleUpdateNotificationSettings(updated);
+        }}
+        onOpenPushPromptModal={() => setIsPushPromptOpen(true)}
+      />
+    </div>
+  );
+}
