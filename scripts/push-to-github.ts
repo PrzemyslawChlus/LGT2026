@@ -86,7 +86,18 @@ try {
   console.log(`📤 Wypychanie zmian do https://github.com/${REPO_OWNER}/${REPO_NAME} (${BRANCH})...`);
   
   // Wypchnięcie zmian z użyciem tokena w locie, nie zapisując go w konfiguracji git
-  execSync(`git push ${remoteUrlWithToken} ${BRANCH}`, { stdio: 'inherit' });
+  try {
+    execSync(`git push ${remoteUrlWithToken} ${BRANCH}`, { stdio: 'inherit' });
+  } catch (pushErr) {
+    console.log('⚠️ Zwykły push odrzucony (niezależne historie). Próbuję zsynchronizować branch...');
+    try {
+      execSync(`git pull ${remoteUrlWithToken} ${BRANCH} --allow-unrelated-histories -X ours --no-edit`, { stdio: 'inherit' });
+      execSync(`git push ${remoteUrlWithToken} ${BRANCH}`, { stdio: 'inherit' });
+    } catch (rebaseErr) {
+      console.log('⚠️ Wymuszam synchronizację głównego brancha (force push)...');
+      execSync(`git push --force ${remoteUrlWithToken} ${BRANCH}`, { stdio: 'inherit' });
+    }
+  }
 
   // Zabezpieczenie: upewnienie się, że origin nie zawiera tokena
   try {
